@@ -61,7 +61,7 @@ async function loadMe(){const{data}=await sb.from('profiles').select('*').eq('id
 async function loadPosts(reset){
   if(reset){S.page=0;S.posts=[]}
   const f=S.page*PS;
-  const{data,error}=await sb.from('posts').select('id,content,image_url,created_at,author_id,profiles(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)').order('created_at',{ascending:false}).range(f,f+PS-1);
+  const{data,error}=await sb.from('posts').select('id,content,image_url,created_at,author_id,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)').order('created_at',{ascending:false}).range(f,f+PS-1);
   if(error){S.err=friendly(error);return}
   S.err=null;S.posts=S.posts.concat(data);S.more=data.length===PS;S.page++;
 }
@@ -162,7 +162,7 @@ const H={
   }
 };
 async function loadCm(id){
-  const{data,error}=await sb.from('comments').select('id,content,created_at,author_id,profiles(first_name,last_name)').eq('post_id',id).order('created_at');
+  const{data,error}=await sb.from('comments').select('id,content,created_at,author_id,profiles!author_id(first_name,last_name)').eq('post_id',id).order('created_at');
   if(error)return toast(friendly(error),1);S.cm[id]=data;renderFeed();
 }
 async function refreshCount(id){
