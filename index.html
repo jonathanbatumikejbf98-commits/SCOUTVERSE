@@ -29,7 +29,7 @@ article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:4
 .cm{border-top:1px solid #e5ebe8;padding:8px 0;font-size:15px}
 .err{color:#b91c1c}.empty{text-align:center;color:var(--mu);padding:24px}.note{font-size:13px;color:var(--mu)}
 nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #dfe6e2;display:flex;z-index:5}
-nav button{flex:1;border:0;background:none;padding:14px 4px;font-size:14px;color:var(--g);font-weight:600}
+nav button{flex:1;border:0;background:none;padding:8px 2px;font-size:12px;line-height:1.3;color:var(--g);font-weight:600}
 #toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:.3s;pointer-events:none;z-index:9;max-width:90%}
 #toast.show{opacity:1}#toast.err{background:#b91c1c}
 </style></head><body>
@@ -52,12 +52,40 @@ sb.auth.onAuthStateChange((ev,ses)=>{
   if(ev==='PASSWORD_RECOVERY')S.recovery=true;
   S.user=ses?.user??null;
   setTimeout(async()=>{
-    if(S.user){await loadMe();await loadPosts(true)}else{S.me=null;S.posts=[]}
+    if(S.user){await loadMe();await loadPosts(true);await loadUnread();S.t??=setInterval(()=>S.user&&loadUnread(),30000)}else{S.me=null;S.posts=[]}
     S.ready=true;render();
   },0);
 });
 
 async function loadMe(){const{data}=await sb.from('profiles').select('*').eq('id',S.user.id).single();S.me=data}
+async function loadUnread(){
+  const{count}=await sb.from('notifications').select('id',{count:'exact',head:true}).eq('read',false);
+  S.unread=count||0;const n=$('#nb');if(n)n.textContent=S.unread||'';
+}
+async function loadNotifs(){
+  const{data,error}=await sb.from('notifications').select('id,type,read,created_at,profiles!actor_id(first_name,last_name),posts(content)').order('created_at',{ascending:false}).limit(50);
+  if(error)toast(friendly(error),1);S.notifs=error?[]:data;
+  if(S.view==='notifs')$('.wrap').innerHTML=notifView();
+}
+async function loadMembers(){
+  const{data,error}=await sb.from('profiles').select('id,first_name,last_name,group_name,province,avatar_url').order('created_at',{ascending:false}).limit(100);
+  if(error)toast(friendly(error),1);S.members=error?[]:data;
+  if(S.view==='members')$('.wrap').innerHTML=membersView();
+}
+async function loadUser(id){
+  const{data:p}=await sb.from('profiles').select('*').eq('id',id).single();S.U=p;
+  const{data,error}=await sb.from('posts').select('id,content,image_url,created_at,author_id,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)').eq('author_id',id).order('created_at',{ascending:false}).limit(50);
+  S.posts=error?[]:data;S.more=false;S.err=error?friendly(error):null;
+  if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
+}
+const notifView=()=>`<h3>Notifications</h3>${!S.notifs?'<p class="empty">Chargement…</p>':S.notifs.length?'<button class="btn ghost" data-act="readall">Tout marquer comme lu</button>'+S.notifs.map(n=>`<div class="card" style="${n.read?'':'border-left:4px solid var(--g2)'}"><b>${esc(n.profiles?.first_name)} ${esc(n.profiles?.last_name)}</b> ${n.type==='comment'?'a commenté':'a réagi à'} votre publication<br><small>« ${esc((n.posts?.content||'').slice(0,80))} » · ${ago(n.created_at)}</small></div>`).join(''):'<p class="empty">Aucune notification pour le moment.</p>'}`;
+const memList=q=>!S.members?'<p class="empty">Chargement…</p>':S.members.filter(m=>(m.first_name+' '+m.last_name).toLowerCase().includes(q.toLowerCase())).map(m=>`<div class="card top">${av(m)}<div class="who"><b><button class="link" data-act="user" data-u="${m.id}" style="padding:0;text-decoration:none">${esc(m.first_name)} ${esc(m.last_name)}</button></b><small>${esc(m.group_name||'')}${m.province?' · '+esc(m.province):''}</small></div></div>`).join('')||'<p class="empty">Aucun membre trouvé.</p>';
+const membersView=()=>`<h3>Membres</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
+const userView=()=>{
+  const u=S.U;if(!u)return '<p class="empty">Chargement…</p>';
+  const r=S.posts.reduce((a,p)=>a+(p.reactions?.length||0),0);
+  return `<div class="card"><div class="top">${av(u)}<div><b>${esc(u.first_name)} ${esc(u.last_name)}</b><br><small>${esc(u.group_name||'')}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))} · ${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}</small></div></div>${u.bio?`<p>${esc(u.bio)}</p>`:''}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')} · ${S.posts.length} publication(s) · ${r} réaction(s) reçue(s)</small></div><div id="feed"></div>`;
+};
 async function loadPosts(reset){
   if(reset){S.page=0;S.posts=[]}
   const f=S.page*PS;
@@ -83,8 +111,8 @@ function render(){
   if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
   if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
   if(!S.user)return authView();
-  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠 Accueil</button><button data-act="nav" data-v="profile">👤 Profil</button><button data-act="out">Quitter</button></nav>`;
-  if(S.view==='feed')renderFeed();
+  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='user'?userView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="members">👥<br>Membres</button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="profile">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
+  if(S.view==='feed'||S.view==='user')renderFeed();
 }
 function authView(){
   const m=S.mode,inp=(n,l,t='text')=>`<label>${l}<input name="${n}" type="${t}" required maxlength="120"></label>`;
@@ -100,7 +128,7 @@ function feedView(){
 const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
 function card(p){
   const a=p.profiles||{},mine=p.author_id===S.user.id,rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0;
-  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b>${esc(a.first_name)} ${esc(a.last_name)}</b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div><p>${esc(p.content)}</p>${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx">${Object.entries(KINDS).map(([k,l])=>`<button data-act="react" data-k="${k}" class="${my?.kind===k?'on':''}">${l}</button>`).join('')}</div><small>${rx.length} réaction(s)</small><div class="acts"><button data-act="comments">💬 ${n} commentaire(s)</button><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.open[p.id]?cbox(p.id):''}</article>`;
+  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button></b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div><p>${esc(p.content)}</p>${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx">${Object.entries(KINDS).map(([k,l])=>`<button data-act="react" data-k="${k}" class="${my?.kind===k?'on':''}">${l}</button>`).join('')}</div><small>${rx.length} réaction(s)</small><div class="acts"><button data-act="comments">💬 ${n} commentaire(s)</button><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.open[p.id]?cbox(p.id):''}</article>`;
 }
 function cbox(id){
   const L=S.cm[id];if(!L)return '<p class="note">Chargement…</p>';
@@ -118,7 +146,14 @@ function profileView(){
 /* ---------- actions ---------- */
 const pid=e=>e.target.closest('article')?.dataset.id;
 const H={
-  nav(e){S.view=e.target.dataset.v;render()},
+  async nav(e){
+    const v=e.target.dataset.v;S.view=v;render();
+    if(v==='feed'){await loadPosts(true);renderFeed()}
+    if(v==='notifs')await loadNotifs();
+    if(v==='members')await loadMembers();
+  },
+  async user(e){S.view='user';S.U=null;render();await loadUser(e.target.dataset.u)},
+  async readall(){await sb.from('notifications').update({read:true}).eq('user_id',S.user.id).eq('read',false);await loadNotifs();await loadUnread()},
   mode(e){S.mode=e.target.dataset.m;render()},
   async out(){await sb.auth.signOut()},
   async retry(){await loadPosts(true);renderFeed()},
@@ -225,5 +260,6 @@ const F={
   }
 };
 app.addEventListener('submit',e=>{e.preventDefault();F[e.target.dataset.f]?.(e.target)});
+app.addEventListener('input',e=>{if(e.target.id==='q')$('#ml').innerHTML=memList(e.target.value)});
 render();
 </script></body></html>
