@@ -1,2 +1,2 @@
-window.SCOUT_URL = "COLLEZ_ICI_L_URL_DU_PROJET";
-window.SCOUT_KEY = "COLLEZ_ICI_LA_CLE_PUBLISHABLE";
+window.SCOUT_URL = "https://wmnnnqqcbhfntvnlzgsc.supabase.co/rest/v1/";
+window.SCOUT_KEY = "sb_publishable_MZHeVxikP2B1Z_XoDfU2Lg_KXoMKPh_";
