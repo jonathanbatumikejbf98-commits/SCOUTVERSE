@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176B45">
+<title>SCOUTVERSE</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23176B45'/%3E%3Cpath d='M16 5l4 11-4 11-4-11z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{--g:#176B45;--g2:#38A169;--bg:#F4F6F5;--tx:#202B26;--mu:#6B7280}
+*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:70px}
+header{background:var(--g);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center;gap:8px;position:sticky;top:0;z-index:5}
+.wrap,.box{max-width:640px;margin:0 auto;padding:14px}
+.card,.box form,.hero{background:#fff;border-radius:14px;padding:14px;margin:0 0 12px;box-shadow:0 1px 3px #0001}
+.hero{text-align:center;background:linear-gradient(160deg,var(--g),var(--g2));color:#fff}
+.hero h1{margin:6px 0 2px;letter-spacing:1px}.hero p{margin:4px 0}
+label{display:block;font-size:14px;color:var(--mu);margin:8px 0}
+input,select,textarea{width:100%;padding:11px;border:1px solid #cfd8d3;border-radius:10px;font:inherit;color:var(--tx);background:#fff;margin-top:3px}
+textarea{min-height:80px}
+.btn{background:var(--g);color:#fff;border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:600;width:100%;margin-top:8px;cursor:pointer}
+.btn:disabled{opacity:.5}.btn.ghost{background:#fff;color:var(--g);border:1px solid var(--g)}
+button{font:inherit;cursor:pointer}
+.link{background:none;border:0;color:var(--g);text-decoration:underline;padding:8px}
+.who{display:flex;flex-direction:column;margin-bottom:6px}.who small,small{color:var(--mu)}
+.top{display:flex;gap:10px;align-items:center}
+.av{width:40px;height:40px;border-radius:50%;background:var(--g2);color:#fff;display:grid;place-items:center;font-weight:700;object-fit:cover;flex:none}
+article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:420px;object-fit:cover}
+.rx,.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.rx button,.acts button{border:1px solid #cfd8d3;background:#fff;border-radius:20px;padding:6px 12px;font-size:14px}
+.rx button.on{background:var(--g);color:#fff;border-color:var(--g)}
+.cm{border-top:1px solid #e5ebe8;padding:8px 0;font-size:15px}
+.err{color:#b91c1c}.empty{text-align:center;color:var(--mu);padding:24px}.note{font-size:13px;color:var(--mu)}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #dfe6e2;display:flex;z-index:5}
+nav button{flex:1;border:0;background:none;padding:14px 4px;font-size:14px;color:var(--g);font-weight:600}
+#toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:.3s;pointer-events:none;z-index:9;max-width:90%}
+#toast.show{opacity:1}#toast.err{background:#b91c1c}
+</style></head><body>
+<div id="app"></div><div id="toast" role="status"></div>
+<script src="config.js"></script>
+<script type="module">
+import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const sb=createClient(window.SCOUT_URL,window.SCOUT_KEY);
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast=(m,e)=>{const t=$('#toast');t.textContent=m;t.className=e?'err show':'show';setTimeout(()=>t.className='',3500)};
+const KINDS={like:'👍 J’aime',bravo:'👏 Bravo',inspirant:'✨ Inspirant',merci:'🙏 Merci'};
+const ROLES=[['scout','Scout'],['responsable','Responsable'],['formateur','Formateur'],['ancien','Ancien scout'],['autre','Autre']];
+const LOGO='<svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="#fff" stroke-width="2"/><path d="M16 5l4 11-4 11-4-11z" fill="#fff"/><circle cx="16" cy="16" r="2" fill="#38A169"/></svg>';
+const PS=10,ago=d=>new Date(d).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});
+const friendly=e=>/Invalid login/i.test(e.message)?'E-mail ou mot de passe incorrect.':/already registered/i.test(e.message)?'Cette adresse est déjà utilisée.':/rate limit/i.test(e.message)?'Trop de tentatives, réessayez dans quelques minutes.':/Email not confirmed/i.test(e.message)?'Confirmez votre e-mail avant de vous connecter.':'Erreur : '+e.message;
+let S={user:null,me:null,mode:'login',view:'feed',posts:[],more:false,page:0,open:{},cm:{},img:null,recovery:false,err:null,ready:false};
+
+sb.auth.onAuthStateChange((ev,ses)=>{
+  if(ev==='PASSWORD_RECOVERY')S.recovery=true;
+  S.user=ses?.user??null;
+  setTimeout(async()=>{
+    if(S.user){await loadMe();await loadPosts(true)}else{S.me=null;S.posts=[]}
+    S.ready=true;render();
+  },0);
+});
+
+async function loadMe(){const{data}=await sb.from('profiles').select('*').eq('id',S.user.id).single();S.me=data}
+async function loadPosts(reset){
+  if(reset){S.page=0;S.posts=[]}
+  const f=S.page*PS;
+  const{data,error}=await sb.from('posts').select('id,content,image_url,created_at,author_id,profiles(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)').order('created_at',{ascending:false}).range(f,f+PS-1);
+  if(error){S.err=friendly(error);return}
+  S.err=null;S.posts=S.posts.concat(data);S.more=data.length===PS;S.page++;
+}
+async function shrink(f){
+  if(!f.type.startsWith('image/'))throw new Error('Choisissez une image.');
+  const b=await createImageBitmap(f),r=Math.min(1,1280/Math.max(b.width,b.height)),c=document.createElement('canvas');
+  c.width=Math.round(b.width*r);c.height=Math.round(b.height*r);c.getContext('2d').drawImage(b,0,0,c.width,c.height);
+  const blob=await new Promise(ok=>c.toBlob(ok,'image/jpeg',.82));
+  if(!blob||blob.size>2097152)throw new Error('Image trop lourde (2 Mo maximum).');return blob;
+}
+async function upload(bucket,f){
+  const blob=await shrink(f),path=`${S.user.id}/${Date.now()}.jpg`;
+  const{error}=await sb.storage.from(bucket).upload(path,blob,{contentType:'image/jpeg'});
+  if(error)throw error;return sb.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+/* ---------- vues ---------- */
+function render(){
+  if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
+  if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
+  if(!S.user)return authView();
+  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠 Accueil</button><button data-act="nav" data-v="profile">👤 Profil</button><button data-act="out">Quitter</button></nav>`;
+  if(S.view==='feed')renderFeed();
+}
+function authView(){
+  const m=S.mode,inp=(n,l,t='text')=>`<label>${l}<input name="${n}" type="${t}" required maxlength="120"></label>`;
+  let f;
+  if(m==='signup')f=`<form data-f="signup">${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('email','Adresse e-mail','email')}${inp('group_name','Nom du groupe scout')}${inp('district','District ou territoire')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle dans le mouvement<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><label>Confirmer le mot de passe<input name="p2" type="password" required autocomplete="new-password"></label><p class="note">Ne publiez ni coordonnées personnelles, ni contenus privés, ni photos d’autres personnes sans leur autorisation.</p><button class="btn">Rejoindre SCOUTVERSE</button></form>`;
+  else if(m==='forgot')f=`<form data-f="forgot">${inp('email','Adresse e-mail','email')}<button class="btn">Envoyer le lien</button></form>`;
+  else f=`<form data-f="login">${inp('email','Adresse e-mail','email')}<label>Mot de passe<input name="p" type="password" required autocomplete="current-password"></label><button class="btn">Se connecter</button></form>`;
+  app.innerHTML=`<main class="box"><section class="hero">${LOGO.replace('width="26" height="26"','width="56" height="56"')}<h1>SCOUTVERSE</h1><p><b>Un mouvement, une communauté, un réseau.</b></p><p>Partagez vos expériences, vos photos et vos activités avec la communauté scoute.</p></section>${f}<p style="text-align:center">${m!=='login'?'<button class="link" data-act="mode" data-m="login">Se connecter</button>':''}${m!=='signup'?'<button class="link" data-act="mode" data-m="signup">Créer un compte</button>':''}${m==='login'?'<button class="link" data-act="mode" data-m="forgot">Mot de passe oublié</button>':''}</p><p class="note" style="text-align:center">Site de démonstration, non affilié à une organisation scoute officielle.</p></main>`;
+}
+function feedView(){
+  return `<form class="card" data-f="post"><label>Quoi de neuf ?<textarea id="txt" maxlength="2000" required placeholder="Partagez une expérience, une idée…"></textarea></label><div id="prev"></div><input id="file" type="file" accept="image/*" aria-label="Ajouter une photo"><button class="btn" id="pub">Créer une publication</button><p class="note">Pas de coordonnées personnelles ni de photos d’autres personnes sans autorisation.</p></form><div id="feed"></div>`;
+}
+const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
+function card(p){
+  const a=p.profiles||{},mine=p.author_id===S.user.id,rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0;
+  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b>${esc(a.first_name)} ${esc(a.last_name)}</b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div><p>${esc(p.content)}</p>${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx">${Object.entries(KINDS).map(([k,l])=>`<button data-act="react" data-k="${k}" class="${my?.kind===k?'on':''}">${l}</button>`).join('')}</div><small>${rx.length} réaction(s)</small><div class="acts"><button data-act="comments">💬 ${n} commentaire(s)</button><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.open[p.id]?cbox(p.id):''}</article>`;
+}
+function cbox(id){
+  const L=S.cm[id];if(!L)return '<p class="note">Chargement…</p>';
+  return `<div>${L.map(c=>`<div class="cm" data-cid="${c.id}"><b>${esc(c.profiles?.first_name)} ${esc(c.profiles?.last_name)}</b> <small>${ago(c.created_at)}</small><br>${esc(c.content)}${c.author_id===S.user.id?' <button class="link" data-act="delc">Supprimer</button>':' <button class="link" data-act="repc">Signaler</button>'}</div>`).join('')||'<p class="note">Aucun commentaire.</p>'}<form data-f="comment" style="display:flex;gap:6px"><input name="c" maxlength="1000" required placeholder="Votre commentaire" aria-label="Commentaire"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form></div>`;
+}
+function renderFeed(){
+  const f=$('#feed');if(!f)return;
+  f.innerHTML=S.err?`<p class="err">${esc(S.err)} <button class="link" data-act="retry">Réessayer</button></p>`:S.posts.length?S.posts.map(card).join('')+(S.more?'<button class="btn ghost" data-act="more">Voir plus</button>':''):'<p class="empty">Aucune publication pour le moment. Soyez le premier à partager !</p>';
+}
+function profileView(){
+  const m=S.me||{},inp=(n,l)=>`<label>${l}<input name="${n}" value="${esc(m[n])}" maxlength="120"></label>`;
+  return `<form class="card" data-f="profile"><div class="top">${av(m)}<div><b>${esc(m.first_name)} ${esc(m.last_name)}</b><br><small>Inscrit le ${m.created_at?new Date(m.created_at).toLocaleDateString('fr-FR'):''}</small></div></div><label>Changer la photo<input id="avf" type="file" accept="image/*"></label>${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('group_name','Groupe scout')}${inp('district','District')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}"${m.scout_role===v?' selected':''}>${l}</option>`).join('')}</select></label><label>Biographie (facultative)<textarea name="bio" maxlength="500">${esc(m.bio)}</textarea></label><button class="btn">Enregistrer</button></form>`;
+}
+
+/* ---------- actions ---------- */
+const pid=e=>e.target.closest('article')?.dataset.id;
+const H={
+  nav(e){S.view=e.target.dataset.v;render()},
+  mode(e){S.mode=e.target.dataset.m;render()},
+  async out(){await sb.auth.signOut()},
+  async retry(){await loadPosts(true);renderFeed()},
+  async more(){await loadPosts();renderFeed()},
+  async react(e){
+    const id=pid(e),k=e.target.dataset.k,p=S.posts.find(x=>x.id===id),my=p.reactions.find(r=>r.user_id===S.user.id),u=S.user.id;
+    const q=my&&my.kind===k?sb.from('reactions').delete().eq('post_id',id).eq('user_id',u):my?sb.from('reactions').update({kind:k}).eq('post_id',id).eq('user_id',u):sb.from('reactions').insert({post_id:id,user_id:u,kind:k});
+    const{error}=await q;if(error)return toast(friendly(error),1);
+    p.reactions=p.reactions.filter(r=>r.user_id!==u);if(!(my&&my.kind===k))p.reactions.push({user_id:u,kind:k});renderFeed();
+  },
+  async comments(e){
+    const id=pid(e);S.open[id]=!S.open[id];renderFeed();
+    if(S.open[id])await loadCm(id);
+  },
+  async del(e){
+    if(!confirm('Supprimer cette publication ?'))return;
+    const{error}=await sb.from('posts').delete().eq('id',pid(e));if(error)return toast(friendly(error),1);
+    await loadPosts(true);renderFeed();toast('Publication supprimée.');
+  },
+  async edit(e){
+    const id=pid(e),p=S.posts.find(x=>x.id===id),t=prompt('Modifier votre publication',p.content);
+    if(!t||!t.trim())return;
+    const{error}=await sb.from('posts').update({content:t.trim().slice(0,2000)}).eq('id',id);if(error)return toast(friendly(error),1);
+    p.content=t.trim().slice(0,2000);renderFeed();toast('Publication modifiée.');
+  },
+  async report(e){
+    const r=prompt('Pourquoi signalez-vous cette publication ?');if(!r||r.trim().length<3)return;
+    const{error}=await sb.from('reports').insert({reporter_id:S.user.id,post_id:pid(e),reason:r.trim().slice(0,500)});
+    error?toast(friendly(error),1):toast('Merci, signalement envoyé à la modération.');
+  },
+  async repc(e){
+    const r=prompt('Pourquoi signalez-vous ce commentaire ?');if(!r||r.trim().length<3)return;
+    const{error}=await sb.from('reports').insert({reporter_id:S.user.id,comment_id:e.target.closest('.cm').dataset.cid,reason:r.trim().slice(0,500)});
+    error?toast(friendly(error),1):toast('Merci, signalement envoyé.');
+  },
+  async delc(e){
+    if(!confirm('Supprimer ce commentaire ?'))return;
+    const id=pid(e),{error}=await sb.from('comments').delete().eq('id',e.target.closest('.cm').dataset.cid);
+    if(error)return toast(friendly(error),1);
+    await loadCm(id);await refreshCount(id);
+  }
+};
+async function loadCm(id){
+  const{data,error}=await sb.from('comments').select('id,content,created_at,author_id,profiles(first_name,last_name)').eq('post_id',id).order('created_at');
+  if(error)return toast(friendly(error),1);S.cm[id]=data;renderFeed();
+}
+async function refreshCount(id){
+  const{count}=await sb.from('comments').select('id',{count:'exact',head:true}).eq('post_id',id);
+  const p=S.posts.find(x=>x.id===id);if(p)p.comments=[{count}];renderFeed();
+}
+app.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b){e.target=b;Object.defineProperty(e,'target',{value:b});H[b.dataset.act]?.(e)}});
+app.addEventListener('change',e=>{
+  if(e.target.id==='file'){
+    const f=e.target.files[0];S.img=f||null;$('#prev').innerHTML='';
+    if(f){const i=document.createElement('img');i.alt='Aperçu de la photo';i.src=URL.createObjectURL(f);$('#prev').append(i)}
+  }
+});
+const F={
+  async login(f){
+    const d=new FormData(f),{error}=await sb.auth.signInWithPassword({email:d.get('email').trim(),password:d.get('p')});
+    if(error)toast(friendly(error),1);
+  },
+  async signup(f){
+    const d=new FormData(f);
+    if(d.get('p')!==d.get('p2'))return toast('Les mots de passe ne sont pas identiques.',1);
+    const meta={};['first_name','last_name','group_name','district','province','country','scout_role'].forEach(k=>meta[k]=String(d.get(k)).trim());
+    const{data,error}=await sb.auth.signUp({email:d.get('email').trim(),password:d.get('p'),options:{data:meta}});
+    if(error)return toast(friendly(error),1);
+    if(!data.session){S.mode='login';render();toast('Compte créé ! Vérifiez votre boîte e-mail pour confirmer, puis connectez-vous.')}
+    else toast('Bienvenue sur SCOUTVERSE !');
+  },
+  async forgot(f){
+    const{error}=await sb.auth.resetPasswordForEmail(new FormData(f).get('email').trim(),{redirectTo:location.origin});
+    error?toast(friendly(error),1):toast('Si cette adresse existe, un lien vient d’être envoyé.');
+  },
+  async newpass(f){
+    const{error}=await sb.auth.updateUser({password:new FormData(f).get('p')});
+    if(error)return toast(friendly(error),1);S.recovery=false;render();toast('Mot de passe modifié.');
+  },
+  async post(f){
+    const t=$('#txt').value.trim(),b=$('#pub');if(!t)return toast('Écrivez un message.',1);
+    b.disabled=true;
+    try{
+      const url=S.img?await upload('post-images',S.img):null;
+      const{error}=await sb.from('posts').insert({author_id:S.user.id,content:t,image_url:url});if(error)throw error;
+      S.img=null;f.reset();$('#prev').innerHTML='';await loadPosts(true);renderFeed();toast('Publication envoyée !');
+    }catch(x){toast('Publication impossible : '+x.message,1)}
+    b.disabled=false;
+  },
+  async comment(f){
+    const id=f.closest('article').dataset.id,c=new FormData(f).get('c').trim();if(!c)return;
+    const{error}=await sb.from('comments').insert({post_id:id,author_id:S.user.id,content:c});
+    if(error)return toast(friendly(error),1);
+    await loadCm(id);await refreshCount(id);
+  },
+  async profile(f){
+    const d=new FormData(f),u={};['first_name','last_name','group_name','district','province','country','scout_role','bio'].forEach(k=>u[k]=String(d.get(k)||'').trim());
+    if(!u.first_name||!u.last_name)return toast('Prénom et nom obligatoires.',1);
+    try{
+      const a=$('#avf').files[0];if(a)u.avatar_url=await upload('avatars',a);
+      const{error}=await sb.from('profiles').update(u).eq('id',S.user.id);if(error)throw error;
+      await loadMe();render();toast('Profil enregistré.');
+    }catch(x){toast('Enregistrement impossible : '+x.message,1)}
+  }
+};
+app.addEventListener('submit',e=>{e.preventDefault();F[e.target.dataset.f]?.(e.target)});
+render();
+</script></body></html>
