@@ -31,6 +31,14 @@ article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:4
 .rx button small{font-size:13px;font-weight:600;color:inherit}
 .rx button.on{background:var(--g);color:#fff;border-color:var(--g)}
 .notif{cursor:pointer}
+@keyframes fill{from{width:0}to{width:100%}}
+#ov.paused .seg{animation-play-state:paused!important}
+.sb{flex:1;border:0;border-radius:12px;padding:12px 4px;background:#2a2a2a;color:#fff;font-weight:600;font-size:13px}.sb.on{background:var(--g)}
+.cnt{position:absolute;top:8px;right:8px;background:#fff;color:var(--g);border-radius:10px;padding:1px 7px;font-size:11px;font-style:normal;font-weight:700}
+.dot{background:var(--g2);color:#fff;border-radius:12px;padding:2px 8px;font-size:12px}
+.chat{max-height:calc(100vh - 250px);min-height:200px;overflow:auto;padding:4px 0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;margin:12px 0;border-top:1px solid #e5ebe8;border-bottom:1px solid #e5ebe8;padding:10px 0}
+.stats b{display:block;font-size:18px}.stats small{font-size:12px}
 .rx button{padding:10px 2px;font-size:13px;font-weight:600}
 .actus{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
 .actu{flex:none;width:96px;height:156px;border-radius:14px;border:0;color:#fff;background:linear-gradient(160deg,var(--g),var(--g2)) center/cover;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;padding:8px;text-align:left;font-size:12px;position:relative;overflow:hidden;box-shadow:0 1px 3px #0002}
@@ -64,7 +72,7 @@ sb.auth.onAuthStateChange((ev,ses)=>{
   if(ev==='PASSWORD_RECOVERY')S.recovery=true;
   S.user=ses?.user??null;
   setTimeout(async()=>{
-    if(S.user){await loadMe();await loadPosts(true);await loadUnread();await loadActus();S.t??=setInterval(()=>S.user&&loadUnread(),30000)}else{S.me=null;S.posts=[]}
+    if(S.user){await loadMe();await loadPosts(true);await loadUnread();await loadActus();S.t??=setInterval(()=>S.user&&loadUnread(),30000);S.pc??=setInterval(()=>{if(S.user&&S.view==='chat')loadChat()},5000)}else{S.me=null;S.posts=[]}
     S.ready=true;render();
   },0);
 });
@@ -73,24 +81,73 @@ async function loadMe(){const{data}=await sb.from('profiles').select('*').eq('id
 async function loadUnread(){
   const{count}=await sb.from('notifications').select('id',{count:'exact',head:true}).eq('read',false);
   S.unread=count||0;const n=$('#nb');if(n)n.textContent=S.unread||'';
+  const{count:mc}=await sb.from('messages').select('id',{count:'exact',head:true}).eq('recipient_id',S.user.id).eq('read',false);
+  S.munread=mc||0;const b=$('#mb');if(b)b.textContent=S.munread||'';
 }
 async function loadNotifs(){
-  const{data,error}=await sb.from('notifications').select('id,type,read,post_id,created_at,profiles!actor_id(first_name,last_name),posts(content)').order('created_at',{ascending:false}).limit(50);
+  const{data,error}=await sb.from('notifications').select('id,type,read,post_id,actor_id,created_at,profiles!actor_id(first_name,last_name),posts(content)').order('created_at',{ascending:false}).limit(50);
   if(error)toast(friendly(error),1);S.notifs=error?[]:data;
   if(S.view==='notifs')$('.wrap').innerHTML=notifView();
 }
 async function loadMembers(){
   const{data,error}=await sb.from('profiles').select('id,first_name,last_name,group_name,province,avatar_url').order('created_at',{ascending:false}).limit(100);
   if(error)toast(friendly(error),1);S.members=error?[]:data;
-  if(S.view==='members')$('.wrap').innerHTML=membersView();
+  if(S.view==='msgs')$('.wrap').innerHTML=msgsView();
 }
 async function loadUser(id){
   const{data:p}=await sb.from('profiles').select('*').eq('id',id).single();S.U=p;
+  const[ca,cb,cc]=await Promise.all([
+    sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('followed_id',id),
+    sb.from('follows').select('followed_id',{count:'exact',head:true}).eq('follower_id',id),
+    sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('follower_id',S.user.id).eq('followed_id',id)]);
+  S.fc=ca.count||0;S.fg=cb.count||0;S.fm=(cc.count||0)>0;
   const{data,error}=await sb.from('posts').select(SEL).eq('author_id',id).order('created_at',{ascending:false}).limit(50);
   S.posts=error?[]:data;S.more=false;S.err=error?friendly(error):null;
   if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
 }
 const SEL='id,content,image_url,created_at,author_id,repost_of,original:posts!repost_of(content,image_url,profiles!author_id(first_name,last_name)),profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
+const GR=['linear-gradient(160deg,#176B45,#38A169)','linear-gradient(160deg,#0f4c81,#3aa6b9)','linear-gradient(160deg,#7b2d8e,#d6609b)','linear-gradient(160deg,#b45309,#f59e0b)'];
+async function openStory(uid){
+  const items=(S.actus||[]).filter(a=>a.author_id===uid).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+  if(!items.length)return;
+  S.sv={items,i:0,likes:{}};
+  const{data}=await sb.from('actu_likes').select('actu_id,user_id').in('actu_id',items.map(a=>a.id));
+  (data||[]).forEach(l=>(S.sv.likes[l.actu_id]??=[]).push(l.user_id));
+  drawStory();
+}
+function drawStory(){
+  clearTimeout(S.st);const v=S.sv,a=v.items[v.i];$('#ov')?.remove();
+  const lk=v.likes[a.id]||[],mine=lk.includes(S.user.id),own=a.author_id===S.user.id,o=document.createElement('div');
+  o.id='ov';o.setAttribute('role','dialog');o.style.cssText='position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;color:#fff';
+  const txt=a.image_url?'position:absolute;bottom:0;left:0;right:0;margin:0;padding:28px 16px 12px;background:linear-gradient(#0000,#000a);font-size:17px':'font-size:26px;font-weight:700;text-align:center;padding:24px';
+  o.innerHTML=`<div style="display:flex;gap:4px;padding:10px 10px 6px">${v.items.map((_,k)=>`<div style="flex:1;height:3px;background:#fff5;border-radius:3px;overflow:hidden"><div class="seg" style="height:100%;background:#fff;width:${k<v.i?'100%':'0'};${k===v.i?'animation:fill 5s linear forwards':''}"></div></div>`).join('')}</div><div style="display:flex;align-items:center;gap:10px;padding:4px 12px">${av(a.profiles)}<div style="flex:1"><b>${esc(a.profiles?.first_name)} ${esc(a.profiles?.last_name)}</b><br><small style="color:#ddd">${ago(a.created_at)}</small></div>${own?`<button class="link" style="color:#fff" data-act="delactu" data-id="${a.id}">Supprimer</button>`:''}<button class="link" style="color:#fff;font-size:22px" data-act="closeov" aria-label="Fermer">✕</button></div><div style="flex:1;position:relative;display:grid;place-items:center;overflow:hidden;${a.image_url?'':'background:'+GR[a.id.charCodeAt(0)%4]}">${a.image_url?`<img src="${esc(a.image_url)}" alt="Image de l’actu" style="max-width:100%;max-height:100%;object-fit:contain">`:''}${a.content?`<p style="${txt};white-space:pre-wrap">${esc(a.content)}</p>`:''}<div data-act="sprev" style="position:absolute;left:0;top:0;bottom:0;width:30%"></div><div data-act="snext" style="position:absolute;right:0;top:0;bottom:0;width:70%"></div></div><div style="padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#111">${own?`<small>👍 ${lk.length} j’aime</small>`:`<div style="display:flex;gap:8px"><button class="sb${mine?' on':''}" data-act="slike">👍 J’aime${lk.length?' · '+lk.length:''}</button><button class="sb" data-act="sreply">↩ Répondre</button><button class="sb" data-act="srepost">🔁 Republier</button></div><form data-f="sreply" style="display:none;gap:6px;margin-top:8px"><input name="m" maxlength="500" placeholder="Votre réponse…" aria-label="Votre réponse" style="margin:0"><button class="btn" style="width:auto;margin:0">Envoyer</button></form>`}</div>`;
+  app.append(o);S.st=setTimeout(snext,5000);
+}
+function snext(){const v=S.sv;if(!v)return;if(v.i+1>=v.items.length){clearTimeout(S.st);$('#ov')?.remove();return}v.i++;drawStory()}
+const pauseStory=()=>{clearTimeout(S.st);$('#ov')?.classList.add('paused')};
+async function loadConvs(){
+  const{data,error}=await sb.from('messages').select('id,content,created_at,read,sender_id,recipient_id,s:profiles!sender_id(id,first_name,last_name,avatar_url),r:profiles!recipient_id(id,first_name,last_name,avatar_url)').order('created_at',{ascending:false}).limit(200);
+  if(error)toast(friendly(error),1);
+  const m=new Map();
+  (data||[]).forEach(x=>{const mine=x.sender_id===S.user.id,id=mine?x.recipient_id:x.sender_id;
+    if(!m.has(id))m.set(id,{id,p:mine?x.r:x.s,last:x.content,mine,unread:0});
+    if(!mine&&!x.read)m.get(id).unread++});
+  S.convs=[...m.values()];if(S.view==='msgs')$('.wrap').innerHTML=msgsView();
+}
+async function loadChat(first){
+  if(S.view!=='chat')return;const o=S.ch,me=S.user.id;
+  if(!S.cp||S.cp.id!==o){const{data:p}=await sb.from('profiles').select('id,first_name,last_name,avatar_url').eq('id',o).single();S.cp=p;const t=$('#chn');if(t&&p)t.textContent=p.first_name+' '+p.last_name}
+  const{data,error}=await sb.from('messages').select('id,content,created_at,sender_id,read').or(`and(sender_id.eq.${me},recipient_id.eq.${o}),and(sender_id.eq.${o},recipient_id.eq.${me})`).order('created_at').limit(200);
+  if(error)return toast(friendly(error),1);
+  const n=S.chm?.length;S.chm=data;const c=$('#cl');
+  if(S.view==='chat'&&c){
+    c.innerHTML=data.length?data.map(x=>{const mine=x.sender_id===me;return `<div style="display:flex;justify-content:${mine?'flex-end':'flex-start'}"><div style="max-width:80%;padding:8px 12px;border-radius:16px;margin:3px 0;background:${mine?'var(--g)':'#fff'};color:${mine?'#fff':'var(--tx)'};white-space:pre-wrap;word-break:break-word">${esc(x.content)}<br><small style="opacity:.7;color:inherit">${new Date(x.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty">Écrivez le premier message.</p>';
+    if(first||data.length!==n)c.scrollTop=c.scrollHeight;
+  }
+  if(data.some(x=>x.sender_id===o&&!x.read)){await sb.from('messages').update({read:true}).eq('sender_id',o).eq('recipient_id',me).eq('read',false);loadUnread()}
+}
+const msgsView=()=>`<h3>Messages</h3>${!S.convs?'<p class="empty">Chargement…</p>':S.convs.length?S.convs.map(c=>`<div class="card top" data-act="chat" data-u="${c.id}" style="cursor:pointer">${av(c.p)}<div class="who" style="flex:1;min-width:0"><b>${esc(c.p?.first_name)} ${esc(c.p?.last_name)}</b><small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.mine?'Vous : ':''}${esc(c.last.slice(0,60))}</small></div>${c.unread?`<b class="dot">${c.unread}</b>`:''}</div>`).join(''):'<p class="empty">Aucune conversation. Cherchez un membre ci-dessous pour lui écrire.</p>'}<h3>Trouver un membre</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
+const chatView=()=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="link" data-act="nav" data-v="msgs" aria-label="Retour">←</button><b id="chn">${esc(S.cp?S.cp.first_name+' '+S.cp.last_name:'')}</b></div><div id="cl" class="chat"></div><form data-f="send" style="display:flex;gap:6px"><input name="m" maxlength="1000" required autocomplete="off" placeholder="Écrire un message…" aria-label="Message"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form>`;
 const OV='position:fixed;inset:0;background:#000c;z-index:20;display:grid;place-items:center;padding:16px';
 const body=p=>{const o=p.original;return o?`<small>🔁 a republié</small><div style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
 async function loadActus(){
@@ -98,21 +155,24 @@ async function loadActus(){
   S.actus=error?[]:data;renderActus();
 }
 const renderActus=()=>{const e=$('#actus');if(!e)return;
-  e.innerHTML=`<h3 style="margin:4px 0 6px">Actus</h3><div class="actus"><button class="actu add" data-act="newactu"><span>＋</span>Créer une actu</button>${(S.actus||[]).map(a=>`<button class="actu" data-act="viewactu" data-id="${a.id}"${a.image_url?` style="background-image:linear-gradient(#0000,#000b),url('${esc(a.image_url)}')"`:''}>${av(a.profiles)}<b>${esc(a.profiles?.first_name)}</b>${a.image_url?'':`<em>${esc(a.content.slice(0,50))}</em>`}</button>`).join('')}</div>`};
+  const g=new Map();(S.actus||[]).forEach(a=>{if(!g.has(a.author_id))g.set(a.author_id,[]);g.get(a.author_id).push(a)});
+  e.innerHTML=`<h3 style="margin:4px 0 6px">Actus</h3><div class="actus"><button class="actu add" data-act="newactu"><span>＋</span>Créer une actu</button>${[...g.entries()].map(([u,l])=>{const a=l[0];return `<button class="actu" data-act="viewactu" data-u="${u}"${a.image_url?` style="background-image:linear-gradient(#0000,#000b),url('${esc(a.image_url)}')"`:''}>${av(a.profiles)}${l.length>1?`<i class="cnt">${l.length}</i>`:''}<b>${u===S.user.id?'Vous':esc(a.profiles?.first_name)}</b>${a.image_url?'':`<em>${esc(a.content.slice(0,50))}</em>`}</button>`}).join('')}</div>`};
 function showActu(a){
   const o=document.createElement('div');o.id='ov';o.style.cssText=OV;o.setAttribute('role','dialog');
   o.innerHTML=`<div class="card" style="width:100%;max-width:420px;margin:0;max-height:92vh;overflow:auto"><div class="top">${av(a.profiles)}<div class="who"><b>${esc(a.profiles?.first_name)} ${esc(a.profiles?.last_name)}</b><small>${ago(a.created_at)} · disparaît après 24 h</small></div></div>${a.image_url?`<img class="ph" src="${esc(a.image_url)}" alt="Image de l’actu">`:''}<p style="font-size:18px;white-space:pre-wrap">${esc(a.content)}</p>${a.author_id===S.user.id?`<button class="btn ghost" data-act="delactu" data-id="${a.id}">Supprimer mon actu</button>`:''}<button class="btn" data-act="closeov">Fermer</button></div>`;
   app.append(o);
 }
 const postView=()=>'<button class="btn ghost" data-act="nav" data-v="feed">← Retour au fil</button><div id="feed" style="margin-top:12px"></div>';
-const notifView=()=>`<h3>Notifications</h3>${!S.notifs?'<p class="empty">Chargement…</p>':S.notifs.length?'<button class="btn ghost" data-act="readall">Tout marquer comme lu</button>'+S.notifs.map(n=>`<div class="card notif" data-act="notif" data-id="${n.id}" data-p="${n.post_id}" style="${n.read?'':'border-left:4px solid var(--g2)'}"><b>${esc(n.profiles?.first_name)} ${esc(n.profiles?.last_name)}</b> ${n.type==='comment'?'a commenté':n.type==='repost'?'a republié':'a réagi à'} votre publication<br><small>« ${esc((n.posts?.content||'').slice(0,80))} » · ${ago(n.created_at)}</small></div>`).join(''):'<p class="empty">Aucune notification pour le moment.</p>'}`;
-const memList=q=>!S.members?'<p class="empty">Chargement…</p>':S.members.filter(m=>(m.first_name+' '+m.last_name).toLowerCase().includes(q.toLowerCase())).map(m=>`<div class="card top">${av(m)}<div class="who"><b><button class="link" data-act="user" data-u="${m.id}" style="padding:0;text-decoration:none">${esc(m.first_name)} ${esc(m.last_name)}</button></b><small>${esc(m.group_name||'')}${m.province?' · '+esc(m.province):''}</small></div></div>`).join('')||'<p class="empty">Aucun membre trouvé.</p>';
+const notifView=()=>`<h3>Notifications</h3>${!S.notifs?'<p class="empty">Chargement…</p>':S.notifs.length?'<button class="btn ghost" data-act="readall">Tout marquer comme lu</button>'+S.notifs.map(n=>`<div class="card notif" data-act="notif" data-id="${n.id}" data-p="${n.post_id}" data-u="${n.actor_id}" style="${n.read?'':'border-left:4px solid var(--g2)'}"><b>${esc(n.profiles?.first_name)} ${esc(n.profiles?.last_name)}</b> ${n.type==='follow'?'a rejoint votre communauté':(n.type==='comment'?'a commenté':n.type==='repost'?'a republié':'a réagi à')+' votre publication'}<br><small>« ${esc((n.posts?.content||'').slice(0,80))} » · ${ago(n.created_at)}</small></div>`).join(''):'<p class="empty">Aucune notification pour le moment.</p>'}`;
+const memList=q=>!S.members?'<p class="empty">Chargement…</p>':S.members.filter(m=>(m.first_name+' '+m.last_name).toLowerCase().includes(q.toLowerCase())).map(m=>`<div class="card top">${av(m)}<div class="who"><b><button class="link" data-act="user" data-u="${m.id}" style="padding:0;text-decoration:none">${esc(m.first_name)} ${esc(m.last_name)}</button></b><small>${esc(m.group_name||'')}${m.province?' · '+esc(m.province):''}</small></div><button class="link" data-act="chat" data-u="${m.id}">✉ Message</button></div>`).join('')||'<p class="empty">Aucun membre trouvé.</p>';
 const membersView=()=>`<h3>Membres</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
 const userView=()=>{
   const u=S.U;if(!u)return '<p class="empty">Chargement…</p>';
-  const r=S.posts.reduce((a,p)=>a+(p.reactions?.length||0),0);
-  return `<div class="card"><div class="top">${av(u)}<div><b>${esc(u.first_name)} ${esc(u.last_name)}</b><br><small>${esc(u.group_name||'')}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))} · ${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}</small></div></div>${u.bio?`<p>${esc(u.bio)}</p>`:''}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')} · ${S.posts.length} publication(s) · ${r} réaction(s) reçue(s)</small></div><div id="feed"></div>`;
+  const me=u.id===S.user.id,r=S.posts.reduce((a,p)=>a+(p.reactions?.length||0),0);
+  const big=av(u).replace('class="av"','class="av" style="width:92px;height:92px;border:4px solid #fff;font-size:36px"');
+  return `<div class="card" style="padding:0;overflow:hidden"><div style="height:110px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:0 14px 14px;margin-top:-46px">${big}<h2 style="margin:8px 0 0">${esc(u.first_name)} ${esc(u.last_name)}</h2><small>${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}${u.group_name?' · '+esc(u.group_name):''}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))}</small>${u.bio?`<p style="margin:8px 0 0">${esc(u.bio)}</p>`:''}<div class="stats"><div><b>${S.posts.length}</b><small>Publications</small></div><div><b>${S.fc||0}</b><small>Membres</small></div><div><b>${S.fg||0}</b><small>Rejoints</small></div><div><b>${r}</b><small>J’aime</small></div></div>${me?'<button class="btn" data-act="nav" data-v="profile">✏️ Modifier le profil</button>':`<div style="display:flex;gap:8px"><button class="btn" data-act="join" data-u="${u.id}">${S.fm?'✓ Rejoint':'＋ Rejoindre'}</button><button class="btn ghost" data-act="chat" data-u="${u.id}">✉ Message</button></div>`}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')}</small></div></div><h3>Publications</h3><div id="feed"></div>`;
 };
+
 async function loadPosts(reset){
   if(reset){S.page=0;S.posts=[]}
   const f=S.page*PS;
@@ -138,7 +198,7 @@ function render(){
   if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
   if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
   if(!S.user)return authView();
-  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="members">👥<br>Membres</button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="profile">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
+  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='msgs'?msgsView():S.view==='chat'?chatView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="msgs">✉️<br>Messages <b id="mb">${S.munread||''}</b></button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="me">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
   if(['feed','user','post'].includes(S.view))renderFeed();
   if(S.view==='feed')renderActus();
 }
@@ -175,10 +235,10 @@ function profileView(){
 const pid=e=>e.target.closest('article')?.dataset.id;
 const H={
   async nav(e){
-    const v=e.target.dataset.v;S.view=v;render();
+    const v=e.target.dataset.v;if(v==='me')return H.user({target:{dataset:{u:S.user.id}}});S.view=v;render();
     if(v==='feed'){await loadPosts(true);renderFeed();await loadActus()}
     if(v==='notifs')await loadNotifs();
-    if(v==='members')await loadMembers();
+    if(v==='msgs'){await loadConvs();await loadMembers()}
   },
   async user(e){S.view='user';S.U=null;render();await loadUser(e.target.dataset.u)},
   async readall(){await sb.from('notifications').update({read:true}).eq('user_id',S.user.id).eq('read',false);await loadNotifs();await loadUnread()},
@@ -204,17 +264,44 @@ const H={
     o.innerHTML='<form class="card" data-f="actu" style="width:100%;max-width:420px;margin:0"><h3 style="margin:0">Créer une actu</h3><label>Votre message (200 caractères max.)<textarea name="t" maxlength="200"></textarea></label><label>Photo (facultative)<input type="file" accept="image/*"></label><p class="note">Elle disparaît automatiquement après 24 h. Pas de coordonnées personnelles ni de photos d’autres personnes sans autorisation.</p><button class="btn">Publier l’actu</button><button type="button" class="btn ghost" data-act="closeov">Annuler</button></form>';
     app.append(o);
   },
-  viewactu(e){const a=(S.actus||[]).find(x=>x.id===e.target.dataset.id);if(a)showActu(a)},
-  closeov(){$('#ov')?.remove()},
+  viewactu(e){openStory(e.target.dataset.u)},
+  closeov(){clearTimeout(S.st);$('#ov')?.remove()},
   async delactu(e){
     if(!confirm('Supprimer cette actu ?'))return;
-    const{error}=await sb.from('actus').delete().eq('id',e.target.dataset.id);
+    clearTimeout(S.st);const{error}=await sb.from('actus').delete().eq('id',e.target.dataset.id);
     if(error)return toast(friendly(error),1);$('#ov')?.remove();await loadActus();
+  },
+  async join(e){
+    const id=e.target.dataset.u,me=S.user.id;
+    const{error}=await(S.fm?sb.from('follows').delete().eq('follower_id',me).eq('followed_id',id):sb.from('follows').insert({follower_id:me,followed_id:id}));
+    if(error)return toast(friendly(error),1);
+    S.fm=!S.fm;S.fc=(S.fc||0)+(S.fm?1:-1);
+    if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
+    toast(S.fm?'Vous avez rejoint ce membre.':'Vous ne le suivez plus.');
+  },
+  async chat(e){S.view='chat';S.ch=e.target.dataset.u;S.cp=null;S.chm=null;render();await loadChat(true)},
+  sprev(){const v=S.sv;if(v.i>0)v.i--;drawStory()},
+  snext(){snext()},
+  async slike(){
+    pauseStory();const v=S.sv,a=v.items[v.i],me=S.user.id,lk=v.likes[a.id]??=[],has=lk.includes(me);
+    const{error}=await(has?sb.from('actu_likes').delete().eq('actu_id',a.id).eq('user_id',me):sb.from('actu_likes').insert({actu_id:a.id,user_id:me}));
+    if(error)return toast(friendly(error),1);
+    v.likes[a.id]=has?lk.filter(x=>x!==me):[...lk,me];
+    const b=$('[data-act=slike]'),n=v.likes[a.id].length;b.className='sb'+(has?'':' on');b.textContent='👍 J’aime'+(n?' · '+n:'');
+  },
+  sreply(){pauseStory();const f=$('#ov form');f.style.display='flex';f.elements.m.focus()},
+  async srepost(){
+    pauseStory();const a=S.sv.items[S.sv.i];
+    if(!confirm('Republier cette actu sur votre profil ?'))return;
+    const n=(a.profiles?.first_name||'')+' '+(a.profiles?.last_name||'');
+    const{error}=await sb.from('posts').insert({author_id:S.user.id,content:((a.content||'🔁 Actu republiée')+'\n\n🔁 Actu de '+n).slice(0,2000),image_url:a.image_url});
+    if(error)return toast(friendly(error),1);
+    toast('Actu republiée sur votre profil.');
   },
   async notif(e){
     const d=e.target.dataset;
     await sb.from('notifications').update({read:true}).eq('id',d.id);loadUnread();
-    const{data,error}=await sb.from('posts').select(SEL).eq('id',d.p).single();
+    if(!d.p||d.p==='null')return H.user({target:{dataset:{u:d.u}}});const{data,error}=await sb.from('posts').select(SEL).eq('id',d.p).single();
     if(error||!data)return toast('Cette publication n’est plus disponible.',1);
     S.view='post';S.posts=[data];S.more=false;S.err=null;S.open[d.p]=true;render();await loadCm(d.p);
   },
@@ -296,6 +383,19 @@ const F={
     const{error}=await sb.auth.updateUser({password:new FormData(f).get('p')});
     if(error)return toast(friendly(error),1);S.recovery=false;render();toast('Mot de passe modifié.');
   },
+  async send(f){
+    const m=f.elements.m.value.trim();if(!m)return;
+    const{error}=await sb.from('messages').insert({sender_id:S.user.id,recipient_id:S.ch,content:m});
+    if(error)return toast(friendly(error),1);
+    f.reset();await loadChat(true);
+  },
+  async sreply(f){
+    const a=S.sv.items[S.sv.i],m=f.elements.m.value.trim();if(!m)return;
+    const q=a.content?' « '+a.content.slice(0,40)+' »':'';
+    const{error}=await sb.from('messages').insert({sender_id:S.user.id,recipient_id:a.author_id,content:('↩ Réponse à votre actu'+q+' : '+m).slice(0,1000)});
+    if(error)return toast(friendly(error),1);
+    toast('Réponse envoyée dans ses messages.');clearTimeout(S.st);$('#ov')?.remove();
+  },
   async actu(f){
     const t=f.elements.t.value.trim(),file=f.querySelector('input[type=file]').files[0],b=f.querySelector('.btn');
     if(!t&&!file)return toast('Écrivez un message ou ajoutez une photo.',1);
@@ -328,7 +428,7 @@ const F={
     try{
       const a=$('#avf').files[0];if(a)u.avatar_url=await upload('avatars',a);
       const{error}=await sb.from('profiles').update(u).eq('id',S.user.id);if(error)throw error;
-      await loadMe();render();toast('Profil enregistré.');
+      await loadMe();S.view='user';render();await loadUser(S.user.id);toast('Profil enregistré.');
     }catch(x){toast('Enregistrement impossible : '+x.message,1)}
   }
 };
