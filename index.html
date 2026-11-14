@@ -25,7 +25,12 @@ button{font:inherit;cursor:pointer}
 article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:420px;object-fit:cover}
 .rx,.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .rx button,.acts button{border:1px solid #cfd8d3;background:#fff;border-radius:20px;padding:6px 12px;font-size:14px}
+.rx{flex-wrap:nowrap;gap:8px}
+.rx button{flex:1;min-width:0;padding:9px 2px;font-size:18px;border-radius:14px;background:var(--bg);border:1px solid transparent;transition:transform .15s,background .15s}
+.rx button:active{transform:scale(.92)}
+.rx button small{font-size:13px;font-weight:600;color:inherit}
 .rx button.on{background:var(--g);color:#fff;border-color:var(--g)}
+.notif{cursor:pointer}
 .cm{border-top:1px solid #e5ebe8;padding:8px 0;font-size:15px}
 .err{color:#b91c1c}.empty{text-align:center;color:var(--mu);padding:24px}.note{font-size:13px;color:var(--mu)}
 nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #dfe6e2;display:flex;z-index:5}
@@ -63,7 +68,7 @@ async function loadUnread(){
   S.unread=count||0;const n=$('#nb');if(n)n.textContent=S.unread||'';
 }
 async function loadNotifs(){
-  const{data,error}=await sb.from('notifications').select('id,type,read,created_at,profiles!actor_id(first_name,last_name),posts(content)').order('created_at',{ascending:false}).limit(50);
+  const{data,error}=await sb.from('notifications').select('id,type,read,post_id,created_at,profiles!actor_id(first_name,last_name),posts(content)').order('created_at',{ascending:false}).limit(50);
   if(error)toast(friendly(error),1);S.notifs=error?[]:data;
   if(S.view==='notifs')$('.wrap').innerHTML=notifView();
 }
@@ -78,7 +83,9 @@ async function loadUser(id){
   S.posts=error?[]:data;S.more=false;S.err=error?friendly(error):null;
   if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
 }
-const notifView=()=>`<h3>Notifications</h3>${!S.notifs?'<p class="empty">Chargement…</p>':S.notifs.length?'<button class="btn ghost" data-act="readall">Tout marquer comme lu</button>'+S.notifs.map(n=>`<div class="card" style="${n.read?'':'border-left:4px solid var(--g2)'}"><b>${esc(n.profiles?.first_name)} ${esc(n.profiles?.last_name)}</b> ${n.type==='comment'?'a commenté':'a réagi à'} votre publication<br><small>« ${esc((n.posts?.content||'').slice(0,80))} » · ${ago(n.created_at)}</small></div>`).join(''):'<p class="empty">Aucune notification pour le moment.</p>'}`;
+const SEL='id,content,image_url,created_at,author_id,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
+const postView=()=>'<button class="btn ghost" data-act="nav" data-v="feed">← Retour au fil</button><div id="feed" style="margin-top:12px"></div>';
+const notifView=()=>`<h3>Notifications</h3>${!S.notifs?'<p class="empty">Chargement…</p>':S.notifs.length?'<button class="btn ghost" data-act="readall">Tout marquer comme lu</button>'+S.notifs.map(n=>`<div class="card notif" data-act="notif" data-id="${n.id}" data-p="${n.post_id}" style="${n.read?'':'border-left:4px solid var(--g2)'}"><b>${esc(n.profiles?.first_name)} ${esc(n.profiles?.last_name)}</b> ${n.type==='comment'?'a commenté':'a réagi à'} votre publication<br><small>« ${esc((n.posts?.content||'').slice(0,80))} » · ${ago(n.created_at)}</small></div>`).join(''):'<p class="empty">Aucune notification pour le moment.</p>'}`;
 const memList=q=>!S.members?'<p class="empty">Chargement…</p>':S.members.filter(m=>(m.first_name+' '+m.last_name).toLowerCase().includes(q.toLowerCase())).map(m=>`<div class="card top">${av(m)}<div class="who"><b><button class="link" data-act="user" data-u="${m.id}" style="padding:0;text-decoration:none">${esc(m.first_name)} ${esc(m.last_name)}</button></b><small>${esc(m.group_name||'')}${m.province?' · '+esc(m.province):''}</small></div></div>`).join('')||'<p class="empty">Aucun membre trouvé.</p>';
 const membersView=()=>`<h3>Membres</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
 const userView=()=>{
@@ -111,8 +118,8 @@ function render(){
   if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
   if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
   if(!S.user)return authView();
-  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='user'?userView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="members">👥<br>Membres</button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="profile">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
-  if(S.view==='feed'||S.view==='user')renderFeed();
+  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="members">👥<br>Membres</button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="profile">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
+  if(['feed','user','post'].includes(S.view))renderFeed();
 }
 function authView(){
   const m=S.mode,inp=(n,l,t='text')=>`<label>${l}<input name="${n}" type="${t}" required maxlength="120"></label>`;
@@ -128,11 +135,11 @@ function feedView(){
 const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
 function card(p){
   const a=p.profiles||{},mine=p.author_id===S.user.id,rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0;
-  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button></b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div><p>${esc(p.content)}</p>${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx">${Object.entries(KINDS).map(([k,l])=>`<button data-act="react" data-k="${k}" class="${my?.kind===k?'on':''}">${l}</button>`).join('')}</div><small>${rx.length} réaction(s)</small><div class="acts"><button data-act="comments">💬 ${n} commentaire(s)</button><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.open[p.id]?cbox(p.id):''}</article>`;
+  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button></b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div><p>${esc(p.content)}</p>${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx">${Object.entries(KINDS).map(([k,l])=>`<button data-act="react" data-k="${k}" class="${my?.kind===k?'on':''}" aria-label="${esc(l.split(' ').slice(1).join(' '))}" title="${esc(l.split(' ').slice(1).join(' '))}">${l.split(' ')[0]} <small>${rx.filter(r=>r.kind===k).length||''}</small></button>`).join('')}<button data-act="comments" aria-label="Commentaires" title="Commentaires">💬 <small>${n||''}</small></button></div><div class="acts"><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.open[p.id]?cbox(p.id):''}</article>`;
 }
 function cbox(id){
   const L=S.cm[id];if(!L)return '<p class="note">Chargement…</p>';
-  return `<div>${L.map(c=>`<div class="cm" data-cid="${c.id}"><b>${esc(c.profiles?.first_name)} ${esc(c.profiles?.last_name)}</b> <small>${ago(c.created_at)}</small><br>${esc(c.content)}${c.author_id===S.user.id?' <button class="link" data-act="delc">Supprimer</button>':' <button class="link" data-act="repc">Signaler</button>'}</div>`).join('')||'<p class="note">Aucun commentaire.</p>'}<form data-f="comment" style="display:flex;gap:6px"><input name="c" maxlength="1000" required placeholder="Votre commentaire" aria-label="Commentaire"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form></div>`;
+  return `<div>${L.map(c=>`<div class="cm" data-cid="${c.id}"><b>${esc(c.profiles?.first_name)} ${esc(c.profiles?.last_name)}</b> <small>${ago(c.created_at)}</small><br>${esc(c.content)} <button class="link" data-act="replyc" data-n="${esc(c.profiles?.first_name)} ${esc(c.profiles?.last_name)}">Répondre</button>${c.author_id===S.user.id?' <button class="link" data-act="delc">Supprimer</button>':' <button class="link" data-act="repc">Signaler</button>'}</div>`).join('')||'<p class="note">Aucun commentaire.</p>'}<form data-f="comment" style="display:flex;gap:6px"><input name="c" maxlength="1000" required placeholder="Votre commentaire" aria-label="Commentaire"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form></div>`;
 }
 function renderFeed(){
   const f=$('#feed');if(!f)return;
@@ -155,7 +162,15 @@ const H={
   async user(e){S.view='user';S.U=null;render();await loadUser(e.target.dataset.u)},
   async readall(){await sb.from('notifications').update({read:true}).eq('user_id',S.user.id).eq('read',false);await loadNotifs();await loadUnread()},
   mode(e){S.mode=e.target.dataset.m;render()},
-  async out(){await sb.auth.signOut()},
+  async out(){if(confirm('Voulez-vous vraiment vous déconnecter ?'))await sb.auth.signOut()},
+  async notif(e){
+    const d=e.target.dataset;
+    await sb.from('notifications').update({read:true}).eq('id',d.id);loadUnread();
+    const{data,error}=await sb.from('posts').select(SEL).eq('id',d.p).single();
+    if(error||!data)return toast('Cette publication n’est plus disponible.',1);
+    S.view='post';S.posts=[data];S.more=false;S.err=null;S.open[d.p]=true;render();await loadCm(d.p);
+  },
+  replyc(e){const i=e.target.closest('article').querySelector('input[name=c]');i.value='@'+e.target.dataset.n+' ';i.focus()},
   async retry(){await loadPosts(true);renderFeed()},
   async more(){await loadPosts();renderFeed()},
   async react(e){
