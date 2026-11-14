@@ -102,10 +102,10 @@ async function loadUser(id){
     sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('follower_id',S.user.id).eq('followed_id',id)]);
   S.fc=ca.count||0;S.fg=cb.count||0;S.fm=(cc.count||0)>0;
   const{data,error}=await sb.from('posts').select(SEL).eq('author_id',id).order('created_at',{ascending:false}).limit(50);
-  S.posts=error?[]:data;S.more=false;S.err=error?friendly(error):null;
+  S.posts=error?[]:await attach(data);S.more=false;S.err=error?friendly(error):null;
   if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
 }
-const SEL='id,content,image_url,created_at,author_id,repost_of,original:posts!repost_of(content,image_url,profiles!author_id(first_name,last_name)),profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
+const SEL='id,content,image_url,created_at,author_id,repost_of,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
 const GR=['linear-gradient(160deg,#176B45,#38A169)','linear-gradient(160deg,#0f4c81,#3aa6b9)','linear-gradient(160deg,#7b2d8e,#d6609b)','linear-gradient(160deg,#b45309,#f59e0b)'];
 async function openStory(uid){
   const items=(S.actus||[]).filter(a=>a.author_id===uid).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
@@ -148,8 +148,13 @@ async function loadChat(first){
 }
 const msgsView=()=>`<h3>Messages</h3>${!S.convs?'<p class="empty">Chargement…</p>':S.convs.length?S.convs.map(c=>`<div class="card top" data-act="chat" data-u="${c.id}" style="cursor:pointer">${av(c.p)}<div class="who" style="flex:1;min-width:0"><b>${esc(c.p?.first_name)} ${esc(c.p?.last_name)}</b><small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.mine?'Vous : ':''}${esc(c.last.slice(0,60))}</small></div>${c.unread?`<b class="dot">${c.unread}</b>`:''}</div>`).join(''):'<p class="empty">Aucune conversation. Cherchez un membre ci-dessous pour lui écrire.</p>'}<h3>Trouver un membre</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
 const chatView=()=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="link" data-act="nav" data-v="msgs" aria-label="Retour">←</button><b id="chn">${esc(S.cp?S.cp.first_name+' '+S.cp.last_name:'')}</b></div><div id="cl" class="chat"></div><form data-f="send" style="display:flex;gap:6px"><input name="m" maxlength="1000" required autocomplete="off" placeholder="Écrire un message…" aria-label="Message"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form>`;
+async function attach(list){
+  const ids=[...new Set(list.filter(p=>p.repost_of).map(p=>p.repost_of))];if(!ids.length)return list;
+  const{data}=await sb.from('posts').select('id,content,image_url,profiles!author_id(first_name,last_name)').in('id',ids);
+  const m=Object.fromEntries((data||[]).map(x=>[x.id,x]));list.forEach(p=>{p.original=m[p.repost_of]||null});return list;
+}
 const OV='position:fixed;inset:0;background:#000c;z-index:20;display:grid;place-items:center;padding:16px';
-const body=p=>{const o=p.original;return o?`<small>🔁 a republié</small><div style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
+const body=p=>{const o=p.repost_of?p.original:null;return o?`<small>🔁 a republié</small><div style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
 async function loadActus(){
   const{data,error}=await sb.from('actus').select('id,content,image_url,created_at,author_id,profiles!author_id(first_name,last_name,avatar_url)').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(30);
   S.actus=error?[]:data;renderActus();
@@ -178,7 +183,7 @@ async function loadPosts(reset){
   const f=S.page*PS;
   const{data,error}=await sb.from('posts').select(SEL).order('created_at',{ascending:false}).range(f,f+PS-1);
   if(error){S.err=friendly(error);return}
-  S.err=null;S.posts=S.posts.concat(data);S.more=data.length===PS;S.page++;
+  S.err=null;S.posts=S.posts.concat(await attach(data));S.more=data.length===PS;S.page++;
 }
 async function shrink(f){
   if(!f.type.startsWith('image/'))throw new Error('Choisissez une image.');
@@ -303,7 +308,7 @@ const H={
     await sb.from('notifications').update({read:true}).eq('id',d.id);loadUnread();
     if(!d.p||d.p==='null')return H.user({target:{dataset:{u:d.u}}});const{data,error}=await sb.from('posts').select(SEL).eq('id',d.p).single();
     if(error||!data)return toast('Cette publication n’est plus disponible.',1);
-    S.view='post';S.posts=[data];S.more=false;S.err=null;S.open[d.p]=true;render();await loadCm(d.p);
+    await attach([data]);S.view='post';S.posts=[data];S.more=false;S.err=null;S.open[d.p]=true;render();await loadCm(d.p);
   },
   replyc(e){const i=e.target.closest('article').querySelector('input[name=c]');i.value='@'+e.target.dataset.n+' ';i.focus()},
   async retry(){await loadPosts(true);renderFeed()},
