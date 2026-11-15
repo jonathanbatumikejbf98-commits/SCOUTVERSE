@@ -37,6 +37,7 @@ article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:4
 .cnt{position:absolute;top:8px;right:8px;background:#fff;color:var(--g);border-radius:10px;padding:1px 7px;font-size:11px;font-style:normal;font-weight:700}
 .dot{background:var(--g2);color:#fff;border-radius:12px;padding:2px 8px;font-size:12px}
 .chat{max-height:calc(100vh - 250px);min-height:200px;overflow:auto;padding:4px 0}
+.tabs{display:flex;gap:6px;margin:0 0 10px}.tabs button{flex:1;padding:10px;border:0;border-radius:12px;background:#fff;font-weight:600;color:var(--g)}.tabs .on{background:var(--g);color:#fff}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;margin:12px 0;border-top:1px solid #e5ebe8;border-bottom:1px solid #e5ebe8;padding:10px 0}
 .stats b{display:block;font-size:18px}.stats small{font-size:12px}
 .rx button{padding:10px 2px;font-size:13px;font-weight:600}
@@ -149,6 +150,39 @@ async function loadChat(first){
 }
 const msgsView=()=>`<h3>Messages</h3>${!S.convs?'<p class="empty">Chargement…</p>':S.convs.length?S.convs.map(c=>`<div class="card top" data-act="chat" data-u="${c.id}" style="cursor:pointer">${av(c.p)}<div class="who" style="flex:1;min-width:0"><b>${esc(c.p?.first_name)} ${esc(c.p?.last_name)}</b><small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.mine?'Vous : ':''}${esc(c.last.slice(0,60))}</small></div>${c.unread?`<b class="dot">${c.unread}</b>`:''}</div>`).join(''):'<p class="empty">Aucune conversation. Cherchez un membre ci-dessous pour lui écrire.</p>'}<h3>Trouver un membre</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
 const chatView=()=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="link" data-act="nav" data-v="msgs" aria-label="Retour">←</button><b id="chn">${esc(S.cp?S.cp.first_name+' '+S.cp.last_name:'')}</b></div><div id="cl" class="chat"></div><form data-f="send" style="display:flex;gap:6px"><input name="m" maxlength="1000" required autocomplete="off" placeholder="Écrire un message…" aria-label="Message"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form>`;
+const KIND={meute:'Meute',troupe:'Troupe',clan:'Clan',equipe:'Équipe d’animation',autre:'Autre'};
+const ROLEG={admin:'Chef de groupe',chef:'Chef d’unité',member:'Membre'};
+const modal=h=>{const o=document.createElement('div');o.id='ov';o.style.cssText=OV;o.innerHTML=h;app.append(o)};
+const canCreate=()=>S.me&&(['responsable','formateur'].includes(S.me.scout_role)||['moderator','admin'].includes(S.me.role));
+async function loadGroups(){
+  const{data,error}=await sb.from('scout_groups').select('id,name,description,province,district,city,group_members(count)').order('created_at',{ascending:false}).limit(100);
+  if(error)toast(friendly(error),1);S.groups=error?[]:data;
+  if(S.view==='groups')$('.wrap').innerHTML=groupsView();
+}
+const gcard=g=>`<div class="card" data-act="opengroup" data-id="${g.id}" style="cursor:pointer;padding:0;overflow:hidden"><div style="height:56px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:10px 14px"><b>${esc(g.name)}</b><br><small>${esc([g.city,g.district,g.province].filter(Boolean).join(' · '))}</small><p style="margin:6px 0">${esc((g.description||'').slice(0,100))}</p><small>👥 ${g.group_members?.[0]?.count||0} membre(s)</small></div></div>`;
+const glist=q=>!S.groups?'<p class="empty">Chargement…</p>':S.groups.filter(g=>(g.name+' '+(g.city||'')+' '+(g.district||'')).toLowerCase().includes(q.toLowerCase())).map(gcard).join('')||'<p class="empty">Aucun groupe trouvé.</p>';
+const groupsView=()=>`<h3>Groupes scouts</h3>${canCreate()?'<button class="btn" data-act="newgroup">＋ Créer mon groupe</button>':'<p class="note">Les chefs de groupe (rôle « Responsable » ou « Formateur » dans le profil) peuvent créer un groupe.</p>'}<input id="gq" placeholder="Rechercher un groupe" aria-label="Rechercher un groupe" style="margin:10px 0"><div id="gl">${glist('')}</div>`;
+async function loadGroup(id,keep){
+  const[g,m,u,po]=await Promise.all([
+    sb.from('scout_groups').select('*,admin:profiles!admin_id(first_name,last_name)').eq('id',id).single(),
+    sb.from('group_members').select('user_id,member_role,unit_id,profiles!user_id(id,first_name,last_name,avatar_url)').eq('group_id',id).limit(300),
+    sb.from('group_units').select('*').eq('group_id',id).order('created_at'),
+    sb.from('posts').select(SEL).eq('group_id',id).order('created_at',{ascending:false}).limit(30)]);
+  if(g.error||!g.data){toast('Groupe introuvable.',1);return}
+  S.G=g.data;S.gm=m.data||[];S.gu=u.data||[];S.posts=await attach(po.data||[]);S.more=false;S.err=null;
+  if(!keep)S.gtab='mur';
+  if(S.view==='group'){$('.wrap').innerHTML=groupView();renderFeed()}
+}
+const groupView=()=>{
+  const g=S.G;if(!g)return '<p class="empty">Chargement…</p>';
+  const me=S.gm.find(x=>x.user_id===S.user.id),adm=g.admin_id===S.user.id,rank={admin:0,chef:1,member:2};
+  const tabs=[['mur','Mur'],['membres','Membres'],['unites','Unités']].map(([k,l])=>`<button class="${S.gtab===k?'on':''}" data-act="gtab" data-t="${k}">${l}</button>`).join('');
+  let c;
+  if(S.gtab==='membres')c=[...S.gm].sort((a,b)=>rank[a.member_role]-rank[b.member_role]).map(x=>{const p=x.profiles||{},un=S.gu.find(u=>u.id===x.unit_id);return `<div class="card top">${av(p)}<div class="who" style="flex:1"><b><button class="link" data-act="user" data-u="${x.user_id}" style="padding:0;text-decoration:none">${esc(p.first_name)} ${esc(p.last_name)}</button></b><small>${ROLEG[x.member_role]}${un?' · '+esc(un.name):''}</small></div>${adm&&x.member_role!=='admin'?`<button class="link" data-act="togglechef" data-u="${x.user_id}">${x.member_role==='chef'?'Retirer chef':'Nommer chef'}</button>`:''}</div>`}).join('')||'<p class="empty">Aucun membre.</p>';
+  else if(S.gtab==='unites')c=(adm?'<button class="btn" data-act="newunit">＋ Ajouter une unité</button>':'')+(S.gu.map(u=>{const n=S.gm.filter(x=>x.unit_id===u.id).length,mine=me?.unit_id===u.id;return `<div class="card"><b>${esc(u.name)}</b> <small>· ${KIND[u.kind]}</small>${u.description?`<p style="margin:4px 0">${esc(u.description)}</p>`:''}<small>👥 ${n} membre(s)</small><div class="acts">${me?`<button data-act="setunit" data-id="${mine?'':u.id}">${mine?'✓ Mon unité (quitter)':'Rejoindre cette unité'}</button>`:''}${adm?`<button data-act="delunit" data-id="${u.id}">Supprimer</button>`:''}</div></div>`}).join('')||'<p class="empty">Aucune unité pour le moment.</p>');
+  else c=(me?'<form class="card" data-f="post"><label>Écrire dans ce groupe<textarea id="txt" maxlength="2000" required></textarea></label><div id="prev"></div><input id="file" type="file" accept="image/*" aria-label="Ajouter une photo"><button class="btn" id="pub">Publier dans le groupe</button></form>':'<p class="note">Rejoignez le groupe pour publier.</p>')+'<div id="feed"></div>';
+  return `<button class="link" data-act="nav" data-v="groups">← Groupes</button><div class="card" style="padding:0;overflow:hidden"><div style="height:100px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:12px 14px"><h2 style="margin:0">${esc(g.name)}</h2><small>${esc([g.city,g.district,g.province].filter(Boolean).join(' · '))}<br>Chef de groupe : ${esc(g.admin?.first_name||'—')} ${esc(g.admin?.last_name||'')}</small>${g.description?`<p>${esc(g.description)}</p>`:''}<div class="stats" style="grid-template-columns:repeat(3,1fr)"><div><b>${S.gm.length}</b><small>Membres</small></div><div><b>${S.gu.length}</b><small>Unités</small></div><div><b>${S.posts.length}</b><small>Publications</small></div></div>${adm?'<small>Vous êtes le chef de ce groupe.</small>':me?'<button class="btn ghost" data-act="leavegroup">Quitter le groupe</button>':'<button class="btn" data-act="joingroup">＋ Rejoindre le groupe</button>'}</div></div><div class="tabs">${tabs}</div>${c}`;
+};
 async function attach(list){
   const ids=[...new Set(list.filter(p=>p.repost_of).map(p=>p.repost_of))];if(!ids.length)return list;
   const{data}=await sb.from('posts').select('id,content,image_url,profiles!author_id(first_name,last_name)').in('id',ids);
@@ -176,7 +210,7 @@ const userView=()=>{
   const u=S.U;if(!u)return '<p class="empty">Chargement…</p>';
   const me=u.id===S.user.id,r=S.posts.reduce((a,p)=>a+(p.reactions?.length||0),0);
   const big=av(u).replace('class="av"','class="av" style="width:92px;height:92px;border:4px solid #fff;font-size:36px"');
-  return `<div class="card" style="padding:0;overflow:hidden"><div style="height:110px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:0 14px 14px;margin-top:-46px">${big}<h2 style="margin:8px 0 0">${esc(u.first_name)} ${esc(u.last_name)}</h2><small>${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}${u.group_name?' · '+esc(u.group_name):''}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))}</small>${u.bio?`<p style="margin:8px 0 0">${esc(u.bio)}</p>`:''}<div class="stats"><div><b>${S.posts.length}</b><small>Publications</small></div><div><b>${S.fc||0}</b><small>Membres</small></div><div><b>${S.fg||0}</b><small>Rejoints</small></div><div><b>${r}</b><small>J’aime</small></div></div>${me?'<button class="btn" data-act="nav" data-v="profile">✏️ Modifier le profil</button>':`<div style="display:flex;gap:8px"><button class="btn" data-act="join" data-u="${u.id}">${S.fm?'✓ Rejoint':'＋ Rejoindre'}</button><button class="btn ghost" data-act="chat" data-u="${u.id}">✉ Message</button></div>`}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')}</small></div></div><h3>Publications</h3><div id="feed"></div>`;
+  return `<div class="card" style="padding:0;overflow:hidden"><div style="height:110px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:0 14px 14px;margin-top:-46px">${big}<h2 style="margin:8px 0 0">${esc(u.first_name)} ${esc(u.last_name)}</h2><small>${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}${u.group_name?' · '+esc(u.group_name):''}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))}</small>${u.bio?`<p style="margin:8px 0 0">${esc(u.bio)}</p>`:''}<div class="stats"><div><b>${S.posts.length}</b><small>Publications</small></div><div><b>${S.fc||0}</b><small>Membres</small></div><div><b>${S.fg||0}</b><small>Rejoints</small></div><div><b>${r}</b><small>J’aime</small></div></div>${me?'<button class="btn" data-act="nav" data-v="profile">✏️ Modifier le profil</button>':`<div style="display:flex;gap:8px"><button class="btn" data-act="join" data-u="${u.id}">${S.fm?'✓ Rejoint':'＋ Rejoindre'}</button><button class="btn ghost" data-act="chat" data-u="${u.id}">✉ Message</button></div>`}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')}</small></div></div><h3>Publications</h3><div id="feed"></div>${me?'<button class="btn ghost" data-act="out" style="margin-top:16px">⎋ Déconnexion</button>':''}`;
 };
 
 async function loadPosts(reset){
@@ -204,8 +238,8 @@ function render(){
   if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
   if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
   if(!S.user)return authView();
-  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='msgs'?msgsView():S.view==='chat'?chatView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="msgs">✉️<br>Messages <b id="mb">${S.munread||''}</b></button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="me">👤<br>Profil</button><button data-act="out">⎋<br>Quitter</button></nav>`;
-  if(['feed','user','post'].includes(S.view))renderFeed();
+  app.innerHTML=`<header>${LOGO} SCOUTVERSE</header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='groups'?groupsView():S.view==='group'?groupView():S.view==='msgs'?msgsView():S.view==='chat'?chatView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="msgs">✉️<br>Messages <b id="mb">${S.munread||''}</b></button><button data-act="nav" data-v="notifs">🔔<br>Notifs <b id="nb">${S.unread||''}</b></button><button data-act="nav" data-v="groups">🏕️<br>Groupes</button><button data-act="nav" data-v="me">👤<br>Profil</button></nav>`;
+  if(['feed','user','post','group'].includes(S.view))renderFeed();
   if(S.view==='feed')renderActus();
 }
 function authView(){
@@ -245,6 +279,7 @@ const H={
     if(v==='feed'){await loadPosts(true);renderFeed();await loadActus()}
     if(v==='notifs')await loadNotifs();
     if(v==='msgs'){await loadConvs();await loadMembers()}
+    if(v==='groups')await loadGroups();
   },
   async user(e){S.view='user';S.U=null;render();await loadUser(e.target.dataset.u)},
   async readall(){await sb.from('notifications').update({read:true}).eq('user_id',S.user.id).eq('read',false);await loadNotifs();await loadUnread()},
@@ -276,6 +311,38 @@ const H={
     if(!confirm('Supprimer cette actu ?'))return;
     clearTimeout(S.st);const{error}=await sb.from('actus').delete().eq('id',e.target.dataset.id);
     if(error)return toast(friendly(error),1);$('#ov')?.remove();await loadActus();
+  },
+  async opengroup(e){S.view='group';S.G=null;S.gm=[];S.gu=[];S.posts=[];render();await loadGroup(e.target.dataset.id)},
+  gtab(e){S.gtab=e.target.dataset.t;$('.wrap').innerHTML=groupView();renderFeed()},
+  async joingroup(){
+    const{error}=await sb.from('group_members').insert({group_id:S.G.id,user_id:S.user.id,member_role:'member'});
+    if(error)return toast(friendly(error),1);toast('Vous avez rejoint le groupe.');await loadGroup(S.G.id,true);
+  },
+  async leavegroup(){
+    if(!confirm('Quitter ce groupe ?'))return;
+    const{error}=await sb.from('group_members').delete().eq('group_id',S.G.id).eq('user_id',S.user.id);
+    if(error)return toast(friendly(error),1);await loadGroup(S.G.id,true);
+  },
+  newgroup(){
+    const m=S.me||{};
+    modal(`<form class="card" data-f="newgroup" style="width:100%;max-width:420px;margin:0;max-height:92vh;overflow:auto"><h3 style="margin:0">Créer mon groupe</h3><label>Nom du groupe<input name="name" required minlength="2" maxlength="120"></label><label>Ville ou territoire<input name="city" maxlength="120"></label><label>District<input name="district" maxlength="120" value="${esc(m.district)}"></label><label>Province<input name="province" maxlength="120" value="${esc(m.province)}"></label><label>Présentation du groupe<textarea name="description" maxlength="1000" placeholder="Devise, histoire, activités…"></textarea></label><p class="note">Vous en serez le chef de groupe et pourrez ensuite créer les unités (meute, troupe, clan, équipe d’animation).</p><button class="btn">Créer le groupe</button><button type="button" class="btn ghost" data-act="closeov">Annuler</button></form>`);
+  },
+  newunit(){
+    modal(`<form class="card" data-f="newunit" style="width:100%;max-width:420px;margin:0"><h3 style="margin:0">Ajouter une unité</h3><label>Nom de l’unité<input name="name" required minlength="2" maxlength="80" placeholder="Ex. : Troupe Aigle"></label><label>Type<select name="kind">${Object.entries(KIND).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></label><label>Description (facultative)<textarea name="description" maxlength="500"></textarea></label><button class="btn">Ajouter</button><button type="button" class="btn ghost" data-act="closeov">Annuler</button></form>`);
+  },
+  async setunit(e){
+    const{error}=await sb.from('group_members').update({unit_id:e.target.dataset.id||null}).eq('group_id',S.G.id).eq('user_id',S.user.id);
+    if(error)return toast(friendly(error),1);await loadGroup(S.G.id,true);
+  },
+  async delunit(e){
+    if(!confirm('Supprimer cette unité ?'))return;
+    const{error}=await sb.from('group_units').delete().eq('id',e.target.dataset.id);
+    if(error)return toast(friendly(error),1);await loadGroup(S.G.id,true);
+  },
+  async togglechef(e){
+    const x=S.gm.find(y=>y.user_id===e.target.dataset.u);
+    const{error}=await sb.from('group_members').update({member_role:x.member_role==='chef'?'member':'chef'}).eq('group_id',S.G.id).eq('user_id',x.user_id);
+    if(error)return toast(friendly(error),1);await loadGroup(S.G.id,true);
   },
   async join(e){
     const id=e.target.dataset.u,me=S.user.id;
@@ -389,6 +456,18 @@ const F={
     const{error}=await sb.auth.updateUser({password:new FormData(f).get('p')});
     if(error)return toast(friendly(error),1);S.recovery=false;render();toast('Mot de passe modifié.');
   },
+  async newgroup(f){
+    const d=new FormData(f),b=f.querySelector('.btn');b.disabled=true;
+    const{data,error}=await sb.from('scout_groups').insert({name:d.get('name').trim(),city:d.get('city').trim()||null,district:d.get('district').trim()||null,province:d.get('province').trim()||null,description:d.get('description').trim()||null,admin_id:S.user.id}).select('id').single();
+    if(error){b.disabled=false;return toast(/row-level security/i.test(error.message)?'Création refusée : réservée aux responsables et formateurs (3 groupes maximum).':friendly(error),1)}
+    $('#ov')?.remove();toast('Groupe créé !');await H.opengroup({target:{dataset:{id:data.id}}});
+  },
+  async newunit(f){
+    const d=new FormData(f);
+    const{error}=await sb.from('group_units').insert({group_id:S.G.id,name:d.get('name').trim(),kind:d.get('kind'),description:d.get('description').trim()||null});
+    if(error)return toast(friendly(error),1);
+    $('#ov')?.remove();S.gtab='unites';await loadGroup(S.G.id,true);toast('Unité ajoutée.');
+  },
   async send(f){
     const m=f.elements.m.value.trim();if(!m)return;
     const{error}=await sb.from('messages').insert({sender_id:S.user.id,recipient_id:S.ch,content:m});
@@ -417,8 +496,8 @@ const F={
     b.disabled=true;
     try{
       const url=S.img?await upload('post-images',S.img):null;
-      const{error}=await sb.from('posts').insert({author_id:S.user.id,content:t,image_url:url});if(error)throw error;
-      S.img=null;f.reset();$('#prev').innerHTML='';await loadPosts(true);renderFeed();toast('Publication envoyée !');
+      const{error}=await sb.from('posts').insert({author_id:S.user.id,content:t,image_url:url,group_id:S.view==='group'?S.G.id:null});if(error)throw error;
+      S.img=null;f.reset();$('#prev').innerHTML='';if(S.view==='group')await loadGroup(S.G.id,true);else{await loadPosts(true);renderFeed()}toast('Publication envoyée !');
     }catch(x){toast('Publication impossible : '+x.message,1)}
     b.disabled=false;
   },
@@ -439,7 +518,7 @@ const F={
   }
 };
 app.addEventListener('submit',e=>{e.preventDefault();F[e.target.dataset.f]?.(e.target)});
-app.addEventListener('input',e=>{if(e.target.id==='q')$('#ml').innerHTML=memList(e.target.value)});
+app.addEventListener('input',e=>{if(e.target.id==='q')$('#ml').innerHTML=memList(e.target.value);if(e.target.id==='gq')$('#gl').innerHTML=glist(e.target.value)});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user&&S.view==='feed')loadActus()});
 render();
 </script></body></html>
