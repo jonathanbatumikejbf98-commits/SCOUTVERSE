@@ -72,7 +72,7 @@ sb.auth.onAuthStateChange((ev,ses)=>{
   if(ev==='PASSWORD_RECOVERY')S.recovery=true;
   S.user=ses?.user??null;
   setTimeout(async()=>{
-    if(S.user){await loadMe();await loadPosts(true);await loadUnread();await loadActus();S.t??=setInterval(()=>S.user&&loadUnread(),30000);S.pc??=setInterval(()=>{if(S.user&&S.view==='chat')loadChat()},5000)}else{S.me=null;S.posts=[]}
+    if(S.user){await loadMe();await loadPosts(true);await loadUnread();await loadActus();S.t??=setInterval(()=>{if(S.user){loadUnread();if(S.view==='feed'&&!$('#ov'))loadActus()}},30000);S.pc??=setInterval(()=>{if(S.user&&S.view==='chat')loadChat()},5000)}else{S.me=null;S.posts=[]}
     S.ready=true;render();
   },0);
 });
@@ -107,10 +107,10 @@ async function loadUser(id){
 }
 const SEL='id,content,image_url,created_at,author_id,repost_of,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
 const GR=['linear-gradient(160deg,#176B45,#38A169)','linear-gradient(160deg,#0f4c81,#3aa6b9)','linear-gradient(160deg,#7b2d8e,#d6609b)','linear-gradient(160deg,#b45309,#f59e0b)'];
-async function openStory(uid){
+async function openStory(uid){await loadActus();
   const order=[];(S.actus||[]).forEach(a=>{if(!order.includes(a.author_id))order.push(a.author_id)});
   const items=order.slice(Math.max(0,order.indexOf(uid))).flatMap(u=>(S.actus||[]).filter(a=>a.author_id===u).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)));
-  if(!items.length)return;
+  if(!items.length)return toast('Cette actu a expiré.',1);
   S.sv={items,i:0,likes:{}};
   const{data}=await sb.from('actu_likes').select('actu_id,user_id').in('actu_id',items.map(a=>a.id));
   (data||[]).forEach(l=>(S.sv.likes[l.actu_id]??=[]).push(l.user_id));
@@ -157,8 +157,8 @@ async function attach(list){
 const OV='position:fixed;inset:0;background:#000c;z-index:20;display:grid;place-items:center;padding:16px';
 const body=p=>{const o=p.repost_of?p.original:null;return o?`<small>🔁 a republié</small><div style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
 async function loadActus(){
-  const{data,error}=await sb.from('actus').select('id,content,image_url,created_at,author_id,profiles!author_id(first_name,last_name,avatar_url)').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(30);
-  S.actus=error?[]:data;renderActus();
+  const{data,error}=await sb.from('actus').select('id,content,image_url,created_at,expires_at,author_id,profiles!author_id(first_name,last_name,avatar_url)').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(30);
+  S.actus=error?[]:data.filter(a=>new Date(a.expires_at)>Date.now());renderActus();
 }
 const renderActus=()=>{const e=$('#actus');if(!e)return;
   const g=new Map();(S.actus||[]).forEach(a=>{if(!g.has(a.author_id))g.set(a.author_id,[]);g.get(a.author_id).push(a)});
@@ -440,5 +440,6 @@ const F={
 };
 app.addEventListener('submit',e=>{e.preventDefault();F[e.target.dataset.f]?.(e.target)});
 app.addEventListener('input',e=>{if(e.target.id==='q')$('#ml').innerHTML=memList(e.target.value)});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user&&S.view==='feed')loadActus()});
 render();
 </script></body></html>
