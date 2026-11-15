@@ -106,7 +106,7 @@ async function loadUser(id){
   S.posts=error?[]:await attach(data);S.more=false;S.err=error?friendly(error):null;
   if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
 }
-const SEL='id,content,image_url,created_at,author_id,repost_of,profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
+const SEL='id,content,image_url,created_at,author_id,repost_of,group_id,grp:scout_groups!group_id(id,name),profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
 const GR=['linear-gradient(160deg,#176B45,#38A169)','linear-gradient(160deg,#0f4c81,#3aa6b9)','linear-gradient(160deg,#7b2d8e,#d6609b)','linear-gradient(160deg,#b45309,#f59e0b)'];
 async function openStory(uid){await loadActus();
   const order=[];(S.actus||[]).forEach(a=>{if(!order.includes(a.author_id))order.push(a.author_id)});
@@ -256,7 +256,7 @@ function feedView(){
 const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
 function card(p){
   const a=p.profiles||{},mine=p.author_id===S.user.id,rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0;
-  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button></b><small>${esc(a.group_name||'')} · ${ago(p.created_at)}</small></div></div>${body(p)}${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx"><button data-act="like" class="${my?'on':''}">👍 J’aime${rx.length?' · '+rx.length:''}</button><button data-act="open" data-id="${p.id}">💬 Commentaire${n?' · '+n:''}</button><button data-act="repost">🔁 Republier</button></div><div class="acts"><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.view==='post'?cbox(p.id):''}</article>`;
+  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button>${p.grp&&S.view!=='group'?` ▶ <button class="link" data-act="opengroup" data-id="${p.grp.id}" style="padding:0;text-decoration:none">${esc(p.grp.name)}</button>`:''}</b><small>${p.grp?'':esc(a.group_name||'')+' · '}${ago(p.created_at)}</small></div></div>${body(p)}${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx"><button data-act="like" class="${my?'on':''}">👍 J’aime${rx.length?' · '+rx.length:''}</button><button data-act="open" data-id="${p.id}">💬 Commentaire${n?' · '+n:''}</button><button data-act="repost">🔁 Republier</button></div><div class="acts"><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.view==='post'?cbox(p.id):''}</article>`;
 }
 function cbox(id){
   const L=S.cm[id];if(!L)return '<p class="note">Chargement…</p>';
