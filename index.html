@@ -31,6 +31,13 @@ article img.ph,#prev img{width:100%;border-radius:10px;margin:6px 0;max-height:4
 .rx button small{font-size:13px;font-weight:600;color:inherit}
 .rx button.on{background:var(--g);color:#fff;border-color:var(--g)}
 .notif{cursor:pointer}
+article .ph{width:calc(100% + 28px);max-width:none;margin:8px -14px 0;border-radius:0;max-height:560px;cursor:pointer}
+article .rp .ph{width:100%;margin:6px 0 0;border-radius:10px;cursor:default}
+.tx{margin:8px -14px;min-height:210px;display:flex;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:700;padding:24px;line-height:1.3;white-space:pre-wrap;word-break:break-word;cursor:pointer}
+.who b .link{color:var(--tx);text-decoration:none;padding:0}
+.rx{border-top:1px solid #e9e2f0;margin:10px 0 0;padding-top:6px;gap:4px;justify-content:flex-start}
+.rx button{flex:none;min-width:70px;background:none;border:0;font-size:16px;font-weight:600;color:var(--mu);padding:8px 12px;border-radius:20px}
+.rx button.on{background:#EFE6F7;color:var(--g)}
 @keyframes fill{from{width:0}to{width:100%}}
 #ov.paused .seg{animation-play-state:paused!important}
 .sb{flex:1;border:0;border-radius:12px;padding:12px 4px;background:#2a2a2a;color:#fff;font-weight:600;font-size:13px}.sb.on{background:var(--g)}
@@ -214,12 +221,14 @@ async function dropPush(){
 }
 const pushCard=()=>window.Notification&&Notification.permission==='granted'?'':'<div class="card"><b>🔔 Alertes de messages</b><p class="note" style="margin:4px 0 8px">Recevez une notification quand on vous écrit, même téléphone en veille.</p><button class="btn" data-act="enablepush">Activer les notifications</button></div>';
 async function attach(list){
-  const ids=[...new Set(list.filter(p=>p.repost_of).map(p=>p.repost_of))];if(!ids.length)return list;
-  const{data}=await sb.from('posts').select('id,content,image_url,profiles!author_id(first_name,last_name)').in('id',ids);
-  const m=Object.fromEntries((data||[]).map(x=>[x.id,x]));list.forEach(p=>{p.original=m[p.repost_of]||null});return list;
+  const ids=[...new Set(list.filter(p=>p.repost_of).map(p=>p.repost_of))],m={};
+  if(ids.length){const{data}=await sb.from('posts').select('id,content,image_url,profiles!author_id(first_name,last_name)').in('id',ids);(data||[]).forEach(x=>m[x.id]=x)}
+  list.forEach(p=>{p.original=p.repost_of?(m[p.repost_of]||null):null});
+  if(list.length){const{data:rp}=await sb.from('posts').select('repost_of').in('repost_of',list.map(p=>p.id));const c={};(rp||[]).forEach(r=>c[r.repost_of]=(c[r.repost_of]||0)+1);list.forEach(p=>p.rc=c[p.id]||0)}
+  return list;
 }
 const OV='position:fixed;inset:0;background:#000c;z-index:20;display:grid;place-items:center;padding:16px';
-const body=p=>{const o=p.repost_of?p.original:null;return o?`<small>🔁 a republié</small><div style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
+const body=p=>{const o=p.repost_of?p.original:null;return o?`<small>🔁 a republié</small><div class="rp" style="background:var(--bg);border-radius:10px;padding:10px;margin:6px 0"><b>${esc(o.profiles?.first_name)} ${esc(o.profiles?.last_name)}</b><p data-act="open" data-id="${p.id}" style="cursor:pointer;margin:4px 0;white-space:pre-wrap">${esc(o.content)}</p>${o.image_url?`<img class="ph" src="${esc(o.image_url)}" alt="Photo de la publication" loading="lazy">`:''}</div>`:!p.content?'<small>🔁 Publication d’origine supprimée</small>':`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap">${esc(p.content)}</p>`};
 async function loadActus(){
   const{data,error}=await sb.from('actus').select('id,content,image_url,created_at,expires_at,author_id,profiles!author_id(first_name,last_name,avatar_url)').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(30);
   S.actus=error?[]:data.filter(a=>new Date(a.expires_at)>Date.now());renderActus();
@@ -284,9 +293,20 @@ function feedView(){
   return `<div id="actus"></div><form class="card" data-f="post"><label>Quoi de neuf ?<textarea id="txt" maxlength="2000" required placeholder="Partagez une expérience, une idée…"></textarea></label><div id="prev"></div><input id="file" type="file" accept="image/*" aria-label="Ajouter une photo"><button class="btn" id="pub">Créer une publication</button><p class="note">Pas de coordonnées personnelles ni de photos d’autres personnes sans autorisation.</p></form><div id="feed"></div>`;
 }
 const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
+const rel=d=>{const m=(Date.now()-new Date(d))/60000;return m<1?'À l’instant':m<60?Math.floor(m)+' min':m<1440?Math.floor(m/60)+' h':m<10080?Math.floor(m/1440)+' j':new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})};
+const BGS=['linear-gradient(135deg,#6E20A0,#9B59C6)','linear-gradient(135deg,#1f1f24,#3a3a44)','linear-gradient(135deg,#0f4c81,#3aa6b9)','linear-gradient(135deg,#b45309,#f59e0b)','linear-gradient(135deg,#176B45,#38A169)','linear-gradient(135deg,#9d174d,#ec4899)'];
 function card(p){
-  const a=p.profiles||{},mine=p.author_id===S.user.id,rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0;
-  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who"><b><button class="link" data-act="user" data-u="${p.author_id}" style="padding:0;text-decoration:none">${esc(a.first_name)} ${esc(a.last_name)}</button>${p.grp&&S.view!=='group'?` ▶ <button class="link" data-act="opengroup" data-id="${p.grp.id}" style="padding:0;text-decoration:none">${esc(p.grp.name)}</button>`:''}</b><small>${p.grp?'':esc(a.group_name||'')+' · '}${ago(p.created_at)}</small></div></div>${body(p)}${p.image_url?`<img class="ph" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:''}<div class="rx"><button data-act="like" class="${my?'on':''}">👍 J’aime${rx.length?' · '+rx.length:''}</button><button data-act="open" data-id="${p.id}">💬 Commentaire${n?' · '+n:''}</button><button data-act="repost">🔁 Republier</button></div><div class="acts"><button data-act="report">Signaler</button>${mine?'<button data-act="edit">Modifier</button><button data-act="del">Supprimer</button>':''}</div>${S.view==='post'?cbox(p.id):''}</article>`;
+  const a=p.profiles||{},rx=p.reactions||[],my=rx.find(r=>r.user_id===S.user.id),n=p.comments?.[0]?.count||0,full=S.view==='post',txt=p.content||'';
+  let inner;
+  if(p.repost_of||(!txt&&!p.image_url))inner=body(p);
+  else if(!p.image_url&&txt.length<=130){
+    const fs=txt.length<=50?30:txt.length<=90?25:21;
+    inner=`<div class="tx" data-act="open" data-id="${p.id}" style="background:${BGS[p.id.charCodeAt(0)%BGS.length]};font-size:${fs}px">${esc(txt)}</div>`;
+  }else{
+    const cut=!full&&txt.length>180;
+    inner=(txt?`<p data-act="open" data-id="${p.id}" style="cursor:pointer;white-space:pre-wrap;margin:8px 0 0">${esc(cut?txt.slice(0,160).trimEnd()+'… ':txt)}${cut?'<b style="color:var(--mu)">Afficher la suite</b>':''}</p>`:'')+(p.image_url?`<img class="ph" data-act="open" data-id="${p.id}" src="${esc(p.image_url)}" alt="Photo de la publication" loading="lazy">`:'');
+  }
+  return `<article class="card" data-id="${p.id}"><div class="top">${av(a)}<div class="who" style="flex:1;min-width:0"><b><button class="link" data-act="user" data-u="${p.author_id}">${esc(a.first_name)} ${esc(a.last_name)}</button>${p.grp&&S.view!=='group'?` ▶ <button class="link" data-act="opengroup" data-id="${p.grp.id}" style="color:var(--g)">${esc(p.grp.name)}</button>`:''}</b><small>${rel(p.created_at)} · 🌐</small></div><button class="link" data-act="menu" data-id="${p.id}" aria-label="Plus d’options" style="font-size:24px;line-height:1;padding:0 6px;color:var(--mu);text-decoration:none">⋯</button></div>${inner}<div class="rx"><button data-act="like" class="${my?'on':''}" aria-label="J’aime">👍 ${rx.length||''}</button><button data-act="open" data-id="${p.id}" aria-label="Commentaires">💬 ${n||''}</button><button data-act="repost" aria-label="Republier">🔁 ${p.rc||''}</button></div>${full?cbox(p.id):''}</article>`;
 }
 function cbox(id){
   const L=S.cm[id];if(!L)return '<p class="note">Chargement…</p>';
@@ -302,7 +322,7 @@ function profileView(){
 }
 
 /* ---------- actions ---------- */
-const pid=e=>e.target.closest('article')?.dataset.id;
+const pid=e=>e.target.closest('article')?.dataset.id||S.mp;
 const H={
   async nav(e){
     const v=e.target.dataset.v;if(v==='me')return H.user({target:{dataset:{u:S.user.id}}});S.view=v;render();
@@ -375,6 +395,11 @@ const H={
     if(error)return toast(friendly(error),1);await loadGroup(S.G.id,true);
   },
   async enablepush(){await enablePush(false)},
+  menu(e){
+    S.mp=e.target.dataset.id;const p=S.posts.find(x=>x.id===S.mp),mine=p?.author_id===S.user.id;
+    modal(`<div class="card" style="width:100%;max-width:420px;margin:0"><button class="btn ghost" data-act="mact" data-a="report">🚩 Signaler</button>${mine?'<button class="btn ghost" data-act="mact" data-a="edit">✏️ Modifier</button><button class="btn ghost" data-act="mact" data-a="del">🗑 Supprimer</button>':''}<button class="btn" data-act="closeov">Fermer</button></div>`);
+  },
+  mact(e){const a=e.target.dataset.a;$('#ov')?.remove();H[a]({target:{closest:()=>null}})},
   async join(e){
     const id=e.target.dataset.u,me=S.user.id;
     const{error}=await(S.fm?sb.from('follows').delete().eq('follower_id',me).eq('followed_id',id):sb.from('follows').insert({follower_id:me,followed_id:id}));
