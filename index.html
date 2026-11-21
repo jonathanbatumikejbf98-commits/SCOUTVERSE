@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#6E20A0"><link rel="manifest" href="/manifest.json"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="SCOUTVERSE">
+<meta name="theme-color" content="#6E20A0"><link rel="preload" as="image" href="/scout-logo-lg.png"><link rel="manifest" href="/manifest.json"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="SCOUTVERSE">
 <title>SCOUTVERSE</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236E20A0'/%3E%3Cpath d='M16 5l4 11-4 11-4-11z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
@@ -53,7 +53,13 @@ nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid 
 nav button{flex:1;border:0;background:none;padding:8px 2px;font-size:12px;line-height:1.3;color:var(--g);font-weight:600}
 #toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:.3s;pointer-events:none;z-index:9;max-width:90%}
 #toast.show{opacity:1}#toast.err{background:#b91c1c}
+#splash{position:fixed;inset:0;background:#6E20A0;display:grid;place-items:center;z-index:100;transition:opacity .6s}
+#splash.out{opacity:0;pointer-events:none}
+#splash img{width:min(55vw,240px);height:auto;animation:pop .9s ease-out}
+@keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
 </style></head><body>
+<div id="splash" aria-hidden="true"><img src="/scout-logo-lg.png" alt=""></div>
+<script>setTimeout(function(){var x=document.getElementById('splash');if(x){x.classList.add('out');setTimeout(function(){x.remove()},700)}},5000)</script>
 <div id="app"></div><div id="toast" role="status"></div>
 <script src="config.js"></script>
 <script type="module">
