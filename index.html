@@ -55,11 +55,15 @@ article .rp .ph{width:100%;margin:6px 0 0;border-radius:10px;cursor:default}
 .stats b{display:block;font-size:18px}.stats small{font-size:12px}
 .rx button{padding:10px 2px;font-size:13px;font-weight:600}
 .actus{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
-.actu{flex:none;width:96px;height:156px;border-radius:14px;border:0;color:#fff;background:linear-gradient(160deg,var(--g),var(--g2)) center/cover;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;padding:8px;text-align:left;font-size:12px;position:relative;overflow:hidden;box-shadow:0 1px 3px #0002}
+.actu{flex:none;width:112px;height:196px;border-radius:14px;border:0;color:#fff;background:linear-gradient(160deg,var(--g),var(--g2)) center/cover;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;padding:8px;text-align:left;font-size:12px;position:relative;overflow:hidden;box-shadow:0 1px 3px #0002}
 .actu .av{position:absolute;top:8px;left:8px;width:34px;height:34px;border:3px solid #fff;font-size:14px}
 .actu em{font-style:normal;margin-top:2px;line-height:1.2}
 .actu.add{background:#fff;color:var(--g);border:1px dashed var(--g);align-items:center;justify-content:center;text-align:center;font-weight:600}
 .actu.add span{font-size:30px;line-height:1}
+.actu.me{background:linear-gradient(160deg,var(--g),var(--g2)) center/cover;color:#fff;border:0;justify-content:flex-end;align-items:center;text-align:center}
+.actu.me .ini{position:absolute;top:26%;left:0;right:0;font-size:60px;font-weight:700;text-align:center}
+.actu.me .pl{position:absolute;bottom:48px;left:50%;transform:translateX(-50%);width:36px;height:36px;border-radius:50%;background:var(--g);color:#fff;border:3px solid #fff;display:grid;place-items:center;font-style:normal;font-size:22px;line-height:1}
+.actu.me b{background:#000a;margin:0 -8px -8px;padding:24px 6px 9px;width:calc(100% + 16px);text-align:center;font-size:12px}
 .cm{border-top:1px solid #e9e2f0;padding:8px 0;font-size:15px}
 .err{color:#b91c1c}.empty{text-align:center;color:var(--mu);padding:24px}.note{font-size:13px;color:var(--mu)}
 nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e3dbec;display:flex;z-index:5}
@@ -129,12 +133,14 @@ async function loadUser(id){
 const SEL='id,content,image_url,created_at,author_id,repost_of,group_id,grp:scout_groups!group_id(id,name),profiles!author_id(first_name,last_name,group_name,avatar_url),comments(count),reactions(user_id,kind)';
 const GR=['linear-gradient(160deg,#6E20A0,#9B59C6)','linear-gradient(160deg,#0f4c81,#3aa6b9)','linear-gradient(160deg,#7b2d8e,#d6609b)','linear-gradient(160deg,#b45309,#f59e0b)'];
 async function openStory(uid){await loadActus();
-  const order=[];(S.actus||[]).forEach(a=>{if(!order.includes(a.author_id))order.push(a.author_id)});
+  const order=[];(S.actus||[]).forEach(a=>{if(!order.includes(a.author_id))order.push(a.author_id)});order.sort((a,b)=>(b===S.user.id)-(a===S.user.id));
   const items=order.slice(Math.max(0,order.indexOf(uid))).flatMap(u=>(S.actus||[]).filter(a=>a.author_id===u).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)));
   if(!items.length)return toast('Cette actu a expiré.',1);
-  S.sv={items,i:0,likes:{}};
+  S.sv={items,i:0,likes:{},views:{},rem:5000,t0:0,paused:false};
   const{data}=await sb.from('actu_likes').select('actu_id,user_id').in('actu_id',items.map(a=>a.id));
   (data||[]).forEach(l=>(S.sv.likes[l.actu_id]??=[]).push(l.user_id));
+  const own=items.filter(a=>a.author_id===S.user.id).map(a=>a.id);
+  if(own.length){const{data:vw}=await sb.from('actu_views').select('actu_id').in('actu_id',own);(vw||[]).forEach(x=>S.sv.views[x.actu_id]=(S.sv.views[x.actu_id]||0)+1)}
   drawStory();
 }
 function drawStory(){
@@ -142,11 +148,22 @@ function drawStory(){
   const lk=v.likes[a.id]||[],mine=lk.includes(S.user.id),own=a.author_id===S.user.id,o=document.createElement('div');
   o.id='ov';o.setAttribute('role','dialog');o.style.cssText='position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;color:#fff';
   const txt=a.image_url?'position:absolute;bottom:0;left:0;right:0;margin:0;padding:28px 16px 12px;background:linear-gradient(#0000,#000a);font-size:17px':'font-size:26px;font-weight:700;text-align:center;padding:24px';
-  o.innerHTML=`<div style="display:flex;gap:4px;padding:10px 10px 6px">${v.items.map((_,k)=>k).filter(k=>v.items[k].author_id===a.author_id).map(k=>`<div style="flex:1;height:3px;background:#fff5;border-radius:3px;overflow:hidden"><div class="seg" style="height:100%;background:#fff;width:${k<v.i?'100%':'0'};${k===v.i?'animation:fill 5s linear forwards':''}"></div></div>`).join('')}</div><div style="display:flex;align-items:center;gap:10px;padding:4px 12px"><button class="link" style="color:#fff;font-size:26px;padding:0 6px" data-act="closeov" aria-label="Retour">←</button>${av(a.profiles)}<div style="flex:1"><b>${esc(a.profiles?.first_name)} ${esc(a.profiles?.last_name)}</b><br><small style="color:#ddd">${ago(a.created_at)}</small></div>${own?`<button class="link" style="color:#fff" data-act="delactu" data-id="${a.id}">Supprimer</button>`:''}<button class="link" style="color:#fff;font-size:22px" data-act="closeov" aria-label="Fermer">✕</button></div><div style="flex:1;position:relative;display:grid;place-items:center;overflow:hidden;${a.image_url?'':'background:'+GR[a.id.charCodeAt(0)%4]}">${a.image_url?`<img src="${esc(a.image_url)}" alt="Image de l’actu" style="max-width:100%;max-height:100%;object-fit:contain">`:''}${a.content?`<p style="${txt};white-space:pre-wrap">${esc(a.content)}</p>`:''}<div data-act="sprev" style="position:absolute;left:0;top:0;bottom:0;width:30%"></div><div data-act="snext" style="position:absolute;right:0;top:0;bottom:0;width:70%"></div></div><div style="padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#111">${own?`<small>👍 ${lk.length} j’aime</small>`:`<div style="display:flex;gap:8px"><button class="sb${mine?' on':''}" data-act="slike">👍 J’aime${lk.length?' · '+lk.length:''}</button><button class="sb" data-act="sreply">↩ Répondre</button><button class="sb" data-act="srepost">🔁 Republier</button></div><form data-f="sreply" style="display:none;gap:6px;margin-top:8px"><input name="m" maxlength="500" placeholder="Votre réponse…" aria-label="Votre réponse" style="margin:0"><button class="btn" style="width:auto;margin:0">Envoyer</button></form>`}</div>`;
-  app.append(o);S.st=setTimeout(snext,5000);
+  o.innerHTML=`<div style="display:flex;gap:4px;padding:10px 10px 6px">${v.items.map((_,k)=>k).filter(k=>v.items[k].author_id===a.author_id).map(k=>`<div style="flex:1;height:3px;background:#fff5;border-radius:3px;overflow:hidden"><div class="seg" style="height:100%;background:#fff;width:${k<v.i?'100%':'0'};${k===v.i?'animation:fill 5s linear forwards':''}"></div></div>`).join('')}</div><div style="display:flex;align-items:center;gap:10px;padding:4px 12px"><button class="link" style="color:#fff;font-size:26px;padding:0 6px" data-act="closeov" aria-label="Retour">←</button>${av(a.profiles)}<div style="flex:1"><b>${esc(a.profiles?.first_name)} ${esc(a.profiles?.last_name)}</b><br><small style="color:#ddd">${actuTime(a.created_at)}</small></div>${own?`<button class="link" style="color:#fff" data-act="delactu" data-id="${a.id}">Supprimer</button>`:''}<button class="link" style="color:#fff;font-size:22px" data-act="closeov" aria-label="Fermer">✕</button></div><div id="sm" style="flex:1;position:relative;display:grid;place-items:center;overflow:hidden;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;${a.image_url?'':'background:'+GR[a.id.charCodeAt(0)%4]}">${a.image_url?`<img src="${esc(a.image_url)}" alt="Image de l’actu" style="max-width:100%;max-height:100%;object-fit:contain;pointer-events:none;-webkit-touch-callout:none">`:''}${a.content?`<p style="${txt};white-space:pre-wrap">${esc(a.content)}</p>`:''}</div><div style="padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#111">${own?`<small>👁 ${v.views[a.id]||0} vue(s) · 👍 ${lk.length} j’aime</small>`:`<div style="display:flex;gap:8px"><button class="sb${mine?' on':''}" data-act="slike">👍 J’aime</button><button class="sb" data-act="sreply">↩ Répondre</button><button class="sb" data-act="srepost">🔁 Republier</button></div><form data-f="sreply" style="display:none;gap:6px;margin-top:8px"><input name="m" maxlength="500" placeholder="Votre réponse…" aria-label="Votre réponse" style="margin:0"><button class="btn" style="width:auto;margin:0">Envoyer</button></form>`}</div>`;
+  app.append(o);
+  v.rem=5000;v.t0=Date.now();v.paused=false;S.st=setTimeout(snext,5000);
+  if(!own)sb.from('actu_views').upsert({actu_id:a.id,viewer_id:S.user.id},{onConflict:'actu_id,viewer_id',ignoreDuplicates:true}).then(()=>{});
+  // Toucher et maintenir = pause ; toucher rapidement = précédent / suivant
+  const m=o.querySelector('#sm');let t0=0,held=false;
+  m.addEventListener('pointerdown',()=>{t0=Date.now();held=true;pauseStory()});
+  m.addEventListener('pointerup',e=>{
+    if(!held)return;held=false;
+    if(Date.now()-t0<250){const r=m.getBoundingClientRect();(e.clientX-r.left)<r.width*0.3?H.sprev():snext()}else resumeStory();
+  });
+  m.addEventListener('pointercancel',()=>{if(held){held=false;resumeStory()}});
 }
 function snext(){const v=S.sv;if(!v)return;if(v.i+1>=v.items.length){clearTimeout(S.st);$('#ov')?.remove();return}v.i++;drawStory()}
-const pauseStory=()=>{clearTimeout(S.st);$('#ov')?.classList.add('paused')};
+function pauseStory(){const v=S.sv;if(!v||v.paused)return;v.paused=true;clearTimeout(S.st);v.rem-=Date.now()-v.t0;$('#ov')?.classList.add('paused')}
+function resumeStory(){const v=S.sv;if(!v||!v.paused)return;v.paused=false;v.t0=Date.now();S.st=setTimeout(snext,Math.max(v.rem,200));$('#ov')?.classList.remove('paused')}
 async function loadConvs(){
   const{data,error}=await sb.from('messages').select('id,content,created_at,read,sender_id,recipient_id,s:profiles!sender_id(id,first_name,last_name,avatar_url),r:profiles!recipient_id(id,first_name,last_name,avatar_url)').order('created_at',{ascending:false}).limit(200);
   if(error)toast(friendly(error),1);
@@ -240,9 +257,11 @@ async function loadActus(){
   const{data,error}=await sb.from('actus').select('id,content,image_url,created_at,expires_at,author_id,profiles!author_id(first_name,last_name,avatar_url)').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(30);
   S.actus=error?[]:data.filter(a=>new Date(a.expires_at)>Date.now());renderActus();
 }
+const actuTime=d=>{const t=new Date(d),n=new Date(),hm=t.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});return t.toDateString()===n.toDateString()?hm:'Hier à '+hm};
+const meCard=()=>{const m=S.me||{};return `<button class="actu me" data-act="newactu"${m.avatar_url?` style="background-image:url('${esc(m.avatar_url)}')"`:''}>${m.avatar_url?'':`<span class="ini">${esc((m.first_name||'?')[0].toUpperCase())}</span>`}<i class="pl">＋</i><b>Mettre une actu</b></button>`};
 const renderActus=()=>{const e=$('#actus');if(!e)return;
   const g=new Map();(S.actus||[]).forEach(a=>{if(!g.has(a.author_id))g.set(a.author_id,[]);g.get(a.author_id).push(a)});
-  e.innerHTML=`<h3 style="margin:4px 0 6px">Actus</h3><div class="actus"><button class="actu add" data-act="newactu"><span>＋</span>Créer une actu</button>${[...g.entries()].map(([u,l])=>{const a=l[0];return `<button class="actu" data-act="viewactu" data-u="${u}"${a.image_url?` style="background-image:linear-gradient(#0000,#000b),url('${esc(a.image_url)}')"`:''}>${av(a.profiles)}${l.length>1?`<i class="cnt">${l.length}</i>`:''}<b>${u===S.user.id?'Vous':esc(a.profiles?.first_name)}</b>${a.image_url?'':`<em>${esc(a.content.slice(0,50))}</em>`}</button>`}).join('')}</div>`};
+  e.innerHTML=`<h3 style="margin:4px 0 6px">Actus</h3><div class="actus">${meCard()}${[...g.entries()].sort((a,b)=>(b[0]===S.user.id)-(a[0]===S.user.id)).map(([u,l])=>{const a=l[0];return `<button class="actu" data-act="viewactu" data-u="${u}"${a.image_url?` style="background-image:linear-gradient(#0000,#000b),url('${esc(a.image_url)}')"`:''}>${av(a.profiles)}${l.length>1?`<i class="cnt">${l.length}</i>`:''}<b>${u===S.user.id?'Vous':esc(a.profiles?.first_name)}</b>${a.image_url?'':`<em>${esc(a.content.slice(0,50))}</em>`}</button>`}).join('')}</div>`};
 function showActu(a){
   const o=document.createElement('div');o.id='ov';o.style.cssText=OV;o.setAttribute('role','dialog');
   o.innerHTML=`<div class="card" style="width:100%;max-width:420px;margin:0;max-height:92vh;overflow:auto"><div class="top">${av(a.profiles)}<div class="who"><b>${esc(a.profiles?.first_name)} ${esc(a.profiles?.last_name)}</b><small>${ago(a.created_at)} · disparaît après 24 h</small></div></div>${a.image_url?`<img class="ph" src="${esc(a.image_url)}" alt="Image de l’actu">`:''}<p style="font-size:18px;white-space:pre-wrap">${esc(a.content)}</p>${a.author_id===S.user.id?`<button class="btn ghost" data-act="delactu" data-id="${a.id}">Supprimer mon actu</button>`:''}<button class="btn" data-act="closeov">Fermer</button></div>`;
@@ -432,7 +451,7 @@ const H={
     const{error}=await(has?sb.from('actu_likes').delete().eq('actu_id',a.id).eq('user_id',me):sb.from('actu_likes').insert({actu_id:a.id,user_id:me}));
     if(error)return toast(friendly(error),1);
     v.likes[a.id]=has?lk.filter(x=>x!==me):[...lk,me];
-    const b=$('[data-act=slike]'),n=v.likes[a.id].length;b.className='sb'+(has?'':' on');b.textContent='👍 J’aime'+(n?' · '+n:'');
+    const b=$('[data-act=slike]'),n=v.likes[a.id].length;b.className='sb'+(has?'':' on');b.textContent='👍 J’aime';
   },
   sreply(){pauseStory();const f=$('#ov form');f.style.display='flex';f.elements.m.focus()},
   async srepost(){
