@@ -126,6 +126,7 @@ async function loadUser(id){
     sb.from('follows').select('followed_id',{count:'exact',head:true}).eq('follower_id',id),
     sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('follower_id',S.user.id).eq('followed_id',id)]);
   S.fc=ca.count||0;S.fg=cb.count||0;S.fm=(cc.count||0)>0;
+  const cd=await sb.from('blocks').select('blocked_id',{count:'exact',head:true}).eq('blocker_id',S.user.id).eq('blocked_id',id);S.ub=(cd.count||0)>0;
   const{data,error}=await sb.from('posts').select(SEL).eq('author_id',id).order('created_at',{ascending:false}).limit(50);
   S.posts=error?[]:await attach(data);S.more=false;S.err=error?friendly(error):null;
   if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
@@ -179,18 +180,32 @@ async function loadConvs(){
 async function loadChat(first){
   if(S.view!=='chat')return;const o=S.ch,me=S.user.id;
   if(!S.cp||S.cp.id!==o){const{data:p}=await sb.from('profiles').select('id,first_name,last_name,avatar_url').eq('id',o).single();S.cp=p;const t=$('#chn');if(t&&p)t.textContent=p.first_name+' '+p.last_name}
-  const{data,error}=await sb.from('messages').select('id,content,created_at,sender_id,read').or(`and(sender_id.eq.${me},recipient_id.eq.${o}),and(sender_id.eq.${o},recipient_id.eq.${me})`).order('created_at').limit(200);
+  const{data,error}=await sb.from('messages').select('id,content,created_at,sender_id,read,audio_path,audio_secs').or(`and(sender_id.eq.${me},recipient_id.eq.${o}),and(sender_id.eq.${o},recipient_id.eq.${me})`).order('created_at').limit(200);
   if(error)return toast(friendly(error),1);
-  const n=S.chm?.length;S.chm=data;const c=$('#cl');
-  if(S.view==='chat'&&c){
-    c.innerHTML=data.length?data.map(x=>{const mine=x.sender_id===me;return `<div style="display:flex;justify-content:${mine?'flex-end':'flex-start'}"><div style="max-width:80%;padding:8px 12px;border-radius:16px;margin:3px 0;background:${mine?'var(--g)':'#fff'};color:${mine?'#fff':'var(--tx)'};white-space:pre-wrap;word-break:break-word">${esc(x.content)}<br><small style="opacity:.7;color:inherit">${new Date(x.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty">Écrivez le premier message.</p>';
+  const n=S.chm?.length;S.chm=data;const c=$('#cl'),need=first||data.length!==n;let su={};
+  if(need){const ap=data.filter(x=>x.audio_path).map(x=>x.audio_path);if(ap.length){const{data:sg}=await sb.storage.from('voice').createSignedUrls(ap,3600);(sg||[]).forEach(x=>su[x.path]=x.signedUrl)}}
+  if(S.view==='chat'&&c&&need){
+    c.innerHTML=data.length?data.map(x=>{const mine=x.sender_id===me;return `<div style="display:flex;justify-content:${mine?'flex-end':'flex-start'}"><div style="max-width:80%;padding:8px 12px;border-radius:16px;margin:3px 0;background:${mine?'var(--g)':'#fff'};color:${mine?'#fff':'var(--tx)'};white-space:pre-wrap;word-break:break-word">${x.audio_path?`<audio controls preload="metadata" src="${esc(su[x.audio_path]||'')}" style="max-width:220px;height:36px"></audio>`:esc(x.content)}<br><small style="opacity:.7;color:inherit">${new Date(x.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty">Écrivez le premier message.</p>';
     if(first||data.length!==n)c.scrollTop=c.scrollHeight;
   }
   if(data.some(x=>x.sender_id===o&&!x.read)){await sb.from('messages').update({read:true}).eq('sender_id',o).eq('recipient_id',me).eq('read',false);loadUnread()}
 }
 const msgsView=()=>`<h3>Messages</h3>${pushCard()}${!S.convs?'<p class="empty">Chargement…</p>':S.convs.length?S.convs.map(c=>`<div class="card top" data-act="chat" data-u="${c.id}" style="cursor:pointer">${av(c.p)}<div class="who" style="flex:1;min-width:0"><b>${esc(c.p?.first_name)} ${esc(c.p?.last_name)}</b><small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.mine?'Vous : ':''}${esc(c.last.slice(0,60))}</small></div>${c.unread?`<b class="dot">${c.unread}</b>`:''}</div>`).join(''):'<p class="empty">Aucune conversation. Cherchez un membre ci-dessous pour lui écrire.</p>'}<h3>Trouver un membre</h3><input id="q" placeholder="Rechercher un membre par nom" aria-label="Rechercher un membre" style="margin-bottom:10px"><div id="ml">${memList('')}</div>`;
-const chatView=()=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="link" data-act="nav" data-v="msgs" aria-label="Retour">←</button><b id="chn">${esc(S.cp?S.cp.first_name+' '+S.cp.last_name:'')}</b></div><div id="cl" class="chat"></div><form data-f="send" style="display:flex;gap:6px"><input name="m" maxlength="1000" required autocomplete="off" placeholder="Écrire un message…" aria-label="Message"><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form>`;
+const chatView=()=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="link" data-act="nav" data-v="msgs" aria-label="Retour">←</button><b id="chn">${esc(S.cp?S.cp.first_name+' '+S.cp.last_name:'')}</b></div><div id="cl" class="chat"></div><form data-f="send" style="display:flex;gap:6px"><input name="m" maxlength="1000" required autocomplete="off" placeholder="Écrire un message…" aria-label="Message"><button type="button" class="btn ghost" id="micx" data-act="reccancel" style="display:none;width:auto;margin:3px 0" aria-label="Annuler">✖</button><button type="button" class="btn ghost" id="mic" data-act="rec" style="width:auto;margin:3px 0" aria-label="Message vocal">🎤</button><button class="btn" style="width:auto;margin:3px 0">Envoyer</button></form>`;
 const soon=(t,e)=>`<h3>${e} ${t}</h3><div class="card"><p class="empty" style="padding:20px 0">Cette section sera bientôt disponible.</p></div>`;
+const RULES=`<h3 style="margin:0 0 6px">📜 Charte de la communauté SCOUTVERSE</h3>
+<p class="note">SCOUTVERSE est un réseau de démonstration pour la communauté scoute, non affilié à une organisation scoute officielle.</p>
+<ol style="padding-left:18px;margin:0 0 10px;line-height:1.5">
+<li><b>Respect :</b> pas d’insultes, de moqueries, de harcèlement ni de haine.</li>
+<li><b>Contenus interdits :</b> sexuels, violents, illégaux ou choquants.</li>
+<li><b>Protection des jeunes :</b> ne publiez ni numéro de téléphone, ni e-mail, ni adresse. Pas de photo d’une autre personne sans son accord, et jamais d’un enfant sans l’accord de ses parents ou responsables.</li>
+<li><b>Droits d’auteur :</b> publiez seulement vos propres textes, photos et créations.</li>
+<li><b>Identité :</b> un compte par personne, sous votre vrai nom.</li>
+<li><b>Sanctions :</b> contenu masqué, avertissement, puis suspension. Trois refus du filtre automatique en 24 h suspendent le compte.</li>
+<li><b>Signaler et bloquer :</b> menu ⋯ d’une publication, bouton Signaler ; Bloquer depuis un profil ou le menu ⋯.</li>
+<li><b>Vos données :</b> nous gardons votre nom, e-mail, groupe, district et province, sans localisation. Les messages privés ne sont lisibles que par les deux personnes. Vous pouvez supprimer votre compte à tout moment (Profil, Modifier le profil).</li>
+</ol>
+<p class="note">Contact : ${esc(window.SCOUT_CONTACT||'bouton Signaler dans l’application')}</p>`;
 const KIND={meute:'Meute',troupe:'Troupe',clan:'Clan',equipe:'Équipe d’animation',autre:'Autre'};
 const ROLEG={admin:'Chef de groupe',chef:'Chef d’unité',member:'Membre'};
 const modal=h=>{const o=document.createElement('div');o.id='ov';o.style.cssText=OV;o.innerHTML=h;app.append(o)};
@@ -247,6 +262,78 @@ async function dropPush(){
     if(sub){await sb.from('push_subscriptions').delete().eq('endpoint',sub.endpoint).eq('user_id',S.user.id);await sub.unsubscribe()}}catch(x){}
 }
 const pushCard=()=>window.Notification&&Notification.permission==='granted'?'':'<div class="card"><b>🔔 Alertes de messages</b><p class="note" style="margin:4px 0 8px">Recevez une notification quand on vous écrit, même téléphone en veille.</p><button class="btn" data-act="enablepush">Activer les notifications</button></div>';
+function updateMic(){
+  const b=$('#mic'),x=$('#micx');if(!b)return;
+  if(S.rc){const t=Math.round((Date.now()-S.rc.t0)/1000);b.textContent='⏹ '+Math.floor(t/60)+':'+String(t%60).padStart(2,'0');b.style.color='#b91c1c';if(x)x.style.display=''}
+  else{b.textContent='🎤';b.style.color='';if(x)x.style.display='none'}
+}
+function stopRec(send){if(!S.rc)return;S.rc.send=send;try{S.rc.mr.stop()}catch(x){}}
+async function startRec(){
+  if(!navigator.mediaDevices||!window.MediaRecorder)return toast('Messages vocaux non pris en charge sur ce navigateur.',1);
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime=['audio/webm','audio/mp4','audio/ogg'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    const mr=new MediaRecorder(st,mime?{mimeType:mime}:undefined);
+    const r=S.rc={mr,st,chunks:[],t0:Date.now(),mime:mr.mimeType||mime||'audio/webm',send:true,to:S.ch};
+    mr.ondataavailable=e=>{if(e.data&&e.data.size)r.chunks.push(e.data)};
+    mr.onstop=async()=>{
+      r.st.getTracks().forEach(t=>t.stop());clearInterval(r.tm);S.rc=null;updateMic();
+      const secs=Math.round((Date.now()-r.t0)/1000);
+      if(!r.send||secs<1||!r.chunks.length)return;
+      const type=r.mime.split(';')[0],ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';
+      const path=`${S.user.id}/${r.to}/${Date.now()}.${ext}`,blob=new Blob(r.chunks,{type});
+      if(blob.size>5242880)return toast('Message vocal trop long.',1);
+      const{error:e1}=await sb.storage.from('voice').upload(path,blob,{contentType:type});
+      if(e1)return toast('Envoi impossible : '+e1.message,1);
+      const{error:e2}=await sb.from('messages').insert({sender_id:S.user.id,recipient_id:r.to,content:'🎤 Message vocal',audio_path:path,audio_secs:secs});
+      if(e2)return toast(friendly(e2),1);
+      if(S.view==='chat')await loadChat(true);
+    };
+    mr.start();r.tm=setInterval(()=>{updateMic();if(Date.now()-r.t0>120000)stopRec(true)},500);updateMic();
+  }catch(x){toast('Microphone refusé ou indisponible.',1)}
+}
+async function clean(t){
+  if(!t)return true;
+  const{data,error}=await sb.rpc('moderate_text',{t});
+  if(error)return true;   // fonction pas encore installée : on laisse passer
+  if(data&&data.ok===false){toast('Publication refusée : '+data.reason+'. Relisez la charte.'+(data.strikes>=3?' Votre compte est suspendu.':''),1);return false}
+  return true;
+}
+async function loadAdmin(){
+  const day=new Date();day.setHours(0,0,0,0);const wk=new Date(Date.now()-7*864e5).toISOString();
+  const c=(t,f)=>{const q=sb.from(t).select('id',{count:'exact',head:true});return f?f(q):q};
+  const[u,u1,u7,p,cm,g,r,rep]=await Promise.all([c('profiles'),c('profiles',q=>q.gte('created_at',day.toISOString())),c('profiles',q=>q.gte('created_at',wk)),c('posts'),c('comments'),c('scout_groups'),c('reports',q=>q.eq('status','open')),
+    sb.from('reports').select('id,reason,status,created_at,post_id,comment_id,reporter:profiles!reporter_id(first_name,last_name),posts(id,content,author_id,hidden),comments(id,content,author_id,hidden)').eq('status','open').order('created_at',{ascending:false}).limit(30)]);
+  S.adm={users:u.count,today:u1.count,week:u7.count,posts:p.count,comments:cm.count,groups:g.count,open:r.count,reports:rep.data||[]};
+  if(S.view==='admin')$('.wrap').innerHTML=adminView();
+}
+const adminView=()=>{
+  if(!['moderator','admin'].includes(S.me?.role))return '<p class="empty">Accès réservé à la modération.</p>';
+  const a=S.adm;if(!a)return '<p class="empty">Chargement…</p>';
+  const st=(n,l)=>`<div class="card" style="text-align:center;margin:0"><b style="font-size:22px">${n??'…'}</b><br><small>${l}</small></div>`;
+  return `<button class="link" data-act="nav" data-v="feed">← Accueil</button><h3>🛡️ Espace modération</h3><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">${st(a.users,'Membres inscrits')}${st(a.today,'Inscrits aujourd’hui')}${st(a.week,'Inscrits (7 jours)')}${st(a.groups,'Groupes')}${st(a.posts,'Publications')}${st(a.comments,'Commentaires')}</div><h4>Signalements ouverts (${a.open??0})</h4>${a.reports.map(r=>{const t=r.posts?'post':'comment',c=r.posts||r.comments||{};return `<div class="card"><small>Signalé par ${esc(r.reporter?.first_name)} ${esc(r.reporter?.last_name)} · ${rel(r.created_at)}</small><p style="margin:6px 0"><b>Motif :</b> ${esc(r.reason)}</p><p style="background:var(--bg);padding:8px;border-radius:8px;margin:6px 0">${esc((c.content||'(contenu supprimé)').slice(0,200))}</p><div class="acts"><button data-act="modact" data-a="hide" data-id="${r.id}" data-t="${t}" data-c="${c.id||''}">Masquer</button><button data-act="modact" data-a="dismiss" data-id="${r.id}">Ignorer</button>${S.me.role==='admin'?`<button data-act="modact" data-a="suspend" data-id="${r.id}" data-t="${t}" data-c="${c.id||''}" data-u="${c.author_id||''}">Masquer + suspendre l’auteur</button>`:''}</div></div>`}).join('')||'<p class="empty">Aucun signalement ouvert.</p>'}`;
+};
+const fm=()=>{try{return localStorage.getItem('feedmode')||'foryou'}catch(x){return 'foryou'}};
+async function loadPosts(reset){
+  if(fm()!=='foryou')return loadRecent(reset);
+  if(reset===undefined&&S.rest?.length){S.posts.push(...S.rest.splice(0,20));S.more=S.rest.length>0;return}
+  return loadForYou();
+}
+// « Pour vous » : fraîcheur + popularité + proximité (membres rejoints, mes groupes) + un peu de hasard
+async function loadForYou(){
+  S.rs=null;S.pool=null;const me=S.user.id;
+  const[f,g]=await Promise.all([sb.from('follows').select('followed_id').eq('follower_id',me),sb.from('group_members').select('group_id').eq('user_id',me)]);
+  const fs=new Set((f.data||[]).map(x=>x.followed_id)),gs=new Set((g.data||[]).map(x=>x.group_id));
+  const{data,error}=await sb.from('posts').select(SEL).order('created_at',{ascending:false}).limit(120);
+  if(error){S.err=friendly(error);return}
+  S.err=null;await attach(data);const now=Date.now();
+  data.forEach(p=>{
+    const h=(now-new Date(p.created_at))/36e5,l=(p.reactions||[]).length,c=p.comments?.[0]?.count||0;
+    p.score=3*Math.exp(-h/36)+Math.log1p(l)+1.5*Math.log1p(c)+1.5*Math.log1p(p.rc||0)+(fs.has(p.author_id)?2:0)+(p.group_id&&gs.has(p.group_id)?1.5:0)+(p.author_id===me?0.5:0)+Math.random()*0.4;
+  });
+  data.sort((a,b)=>b.score-a.score);
+  S.posts=data.slice(0,20);S.rest=data.slice(20);S.more=S.rest.length>0;
+}
 async function attach(list){
   const ids=[...new Set(list.filter(p=>p.repost_of).map(p=>p.repost_of))],m={};
   if(ids.length){const{data}=await sb.from('posts').select('id,content,image_url,profiles!author_id(first_name,last_name)').in('id',ids);(data||[]).forEach(x=>m[x.id]=x)}
@@ -305,10 +392,10 @@ const userView=()=>{
   const u=S.U;if(!u)return '<p class="empty">Chargement…</p>';
   const me=u.id===S.user.id,r=S.posts.reduce((a,p)=>a+(p.reactions?.length||0),0);
   const big=av(u).replace('class="av"','class="av" style="width:92px;height:92px;border:4px solid #fff;font-size:36px"');
-  return `<div class="card" style="padding:0;overflow:hidden"><div style="height:110px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:0 14px 14px;margin-top:-46px">${big}<h2 style="margin:8px 0 0">${esc(u.first_name)} ${esc(u.last_name)}</h2><small>${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}${u.group_name?' · '+esc(u.group_name):''}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))}</small>${u.bio?`<p style="margin:8px 0 0">${esc(u.bio)}</p>`:''}<div class="stats"><div><b>${S.posts.length}</b><small>Publications</small></div><div><b>${S.fc||0}</b><small>Membres</small></div><div><b>${S.fg||0}</b><small>Rejoints</small></div><div><b>${r}</b><small>J’aime</small></div></div>${me?'<button class="btn" data-act="nav" data-v="profile">✏️ Modifier le profil</button>':`<div style="display:flex;gap:8px"><button class="btn" data-act="join" data-u="${u.id}">${S.fm?'✓ Rejoint':'＋ Rejoindre'}</button><button class="btn ghost" data-act="chat" data-u="${u.id}">✉ Message</button></div>`}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')}</small></div></div><h3>Publications</h3><div id="feed"></div>`;
+  return `<div class="card" style="padding:0;overflow:hidden"><div style="height:110px;background:linear-gradient(135deg,var(--g),var(--g2))"></div><div style="padding:0 14px 14px;margin-top:-46px">${big}<h2 style="margin:8px 0 0">${esc(u.first_name)} ${esc(u.last_name)}</h2><small>${esc(ROLES.find(x=>x[0]===u.scout_role)?.[1]||'')}${u.group_name?' · '+esc(u.group_name):''}${u.district?' · '+esc(u.district):''}<br>${esc([u.province,u.country].filter(Boolean).join(', '))}</small>${u.bio?`<p style="margin:8px 0 0">${esc(u.bio)}</p>`:''}<div class="stats"><div><b>${S.posts.length}</b><small>Publications</small></div><div><b>${S.fc||0}</b><small>Membres</small></div><div><b>${S.fg||0}</b><small>Rejoints</small></div><div><b>${r}</b><small>J’aime</small></div></div>${me?'<button class="btn" data-act="nav" data-v="profile">✏️ Modifier le profil</button>':`<div style="display:flex;gap:8px"><button class="btn" data-act="join" data-u="${u.id}">${S.fm?'✓ Rejoint':'＋ Rejoindre'}</button><button class="btn ghost" data-act="chat" data-u="${u.id}">✉ Message</button></div><button class="btn ghost" data-act="block" data-u="${u.id}" style="margin-top:6px">${S.ub?'✓ Bloqué (toucher pour débloquer)':'🚫 Bloquer'}</button>`}<small>Inscrit le ${new Date(u.created_at).toLocaleDateString('fr-FR')}</small></div></div><h3>Publications</h3><div id="feed"></div>`;
 };
 
-async function loadPosts(reset){
+async function loadRecent(reset){
   if(reset){S.page=0;S.posts=[];S.rs=null;S.pool=null}
   const f=S.page*PS;
   const{data,error}=await sb.from('posts').select(SEL).order('created_at',{ascending:false}).range(f,f+PS-1);
@@ -330,23 +417,24 @@ async function upload(bucket,f){
 
 /* ---------- vues ---------- */
 function render(){
+  if(S.rc&&S.view!=='chat')stopRec(false);
   if(!S.ready)return app.innerHTML='<p class="empty">Chargement…</p>';
   if(S.recovery&&S.user)return app.innerHTML='<main class="box"><h2>Nouveau mot de passe</h2><form data-f="newpass"><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn">Enregistrer</button></form></main>';
   if(!S.user)return authView();
-  app.innerHTML=`<header><img src="/scout-logo.png" alt="" width="32" height="32" style="border-radius:50%"> SCOUTVERSE<div class="hic"><button data-act="plus" aria-label="Créer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button><button class="c" data-act="nav" data-v="msgs" aria-label="Messages"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg><i class="bdg" id="mb">${S.munread||''}</i></button><button class="c" data-act="nav" data-v="notifs" aria-label="Notifications"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21a2 2 0 0 0 4 0"/></svg><i class="bdg" id="nb">${S.unread||''}</i></button><button class="c" data-act="nav" data-v="search" aria-label="Rechercher"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg></button></div></header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='search'?searchView():S.view==='library'?soon('Bibliothèque','📚'):S.view==='database'?soon('Base de données','🗄️'):S.view==='groups'?groupsView():S.view==='group'?groupView():S.view==='msgs'?msgsView():S.view==='chat'?chatView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="library">📚<br>Bibliothèque</button><button data-act="nav" data-v="database">🗄️<br>Base de données</button><button data-act="nav" data-v="groups">🏕️<br>Groupes</button><button data-act="nav" data-v="me">👤<br>Profil</button></nav>`;
+  app.innerHTML=`<header><img src="/scout-logo.png" alt="" width="32" height="32" style="border-radius:50%"> SCOUTVERSE<div class="hic"><button data-act="plus" aria-label="Créer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button><button class="c" data-act="nav" data-v="msgs" aria-label="Messages"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg><i class="bdg" id="mb">${S.munread||''}</i></button><button class="c" data-act="nav" data-v="notifs" aria-label="Notifications"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21a2 2 0 0 0 4 0"/></svg><i class="bdg" id="nb">${S.unread||''}</i></button><button class="c" data-act="nav" data-v="search" aria-label="Rechercher"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg></button></div></header><main class="wrap">${S.view==='profile'?profileView():S.view==='notifs'?notifView():S.view==='members'?membersView():S.view==='admin'?adminView():S.view==='search'?searchView():S.view==='library'?soon('Bibliothèque','📚'):S.view==='database'?soon('Base de données','🗄️'):S.view==='groups'?groupsView():S.view==='group'?groupView():S.view==='msgs'?msgsView():S.view==='chat'?chatView():S.view==='user'?userView():S.view==='post'?postView():feedView()}</main><nav><button data-act="nav" data-v="feed">🏠<br>Accueil</button><button data-act="nav" data-v="library">📚<br>Bibliothèque</button><button data-act="nav" data-v="database">🗄️<br>Base de données</button><button data-act="nav" data-v="groups">🏕️<br>Groupes</button><button data-act="nav" data-v="me">👤<br>Profil</button></nav>`;
   if(['feed','user','post','group','search'].includes(S.view))renderFeed();
   if(S.view==='feed')renderActus();
 }
 function authView(){
   const m=S.mode,inp=(n,l,t='text')=>`<label>${l}<input name="${n}" type="${t}" required maxlength="120"></label>`;
   let f;
-  if(m==='signup')f=`<form data-f="signup">${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('email','Adresse e-mail','email')}${inp('group_name','Nom du groupe scout')}${inp('district','District ou territoire')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle dans le mouvement<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><label>Confirmer le mot de passe<input name="p2" type="password" required autocomplete="new-password"></label><p class="note">Ne publiez ni coordonnées personnelles, ni contenus privés, ni photos d’autres personnes sans leur autorisation.</p><button class="btn">Rejoindre SCOUTVERSE</button></form>`;
+  if(m==='signup')f=`<form data-f="signup">${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('email','Adresse e-mail','email')}${inp('group_name','Nom du groupe scout')}${inp('district','District ou territoire')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle dans le mouvement<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><label>Mot de passe (8 caractères min.)<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><label>Confirmer le mot de passe<input name="p2" type="password" required autocomplete="new-password"></label><label style="display:flex;gap:8px;align-items:flex-start;color:var(--tx)"><input type="checkbox" name="terms" required style="width:auto;margin-top:4px"><span>J’accepte la <button type="button" class="link" data-act="rules" style="padding:0">charte et les conditions d’utilisation</button>.</span></label><p class="note">Ne publiez ni coordonnées personnelles, ni contenus privés, ni photos d’autres personnes sans leur autorisation.</p><button class="btn">Rejoindre SCOUTVERSE</button></form>`;
   else if(m==='forgot')f=`<form data-f="forgot">${inp('email','Adresse e-mail','email')}<button class="btn">Envoyer le lien</button></form>`;
   else f=`<form data-f="login">${inp('email','Adresse e-mail','email')}<label>Mot de passe<input name="p" type="password" required autocomplete="current-password"></label><button class="btn">Se connecter</button></form>`;
   app.innerHTML=`<main class="box"><section class="hero"><img src="/scout-logo.png" alt="Logo scout" width="76" height="76" style="border-radius:50%"><h1>SCOUTVERSE</h1><p><b>Un mouvement, une communauté, un réseau.</b></p><p>Partagez vos expériences, vos photos et vos activités avec la communauté scoute.</p></section>${f}<p style="text-align:center">${m!=='login'?'<button class="link" data-act="mode" data-m="login">Se connecter</button>':''}${m!=='signup'?'<button class="link" data-act="mode" data-m="signup">Créer un compte</button>':''}${m==='login'?'<button class="link" data-act="mode" data-m="forgot">Mot de passe oublié</button>':''}</p><p class="note" style="text-align:center">Site de démonstration, non affilié à une organisation scoute officielle.</p></main>`;
 }
 function feedView(){
-  return `<div class="card top" data-act="newpost" style="cursor:pointer;margin-bottom:10px">${av(S.me||{})}<div style="flex:1;background:var(--bg);border-radius:22px;padding:11px 16px;color:var(--mu)">Quoi de neuf ?</div><span aria-hidden="true" style="font-size:22px">🖼️</span></div><div id="actus"></div><div id="feed"></div>`;
+  return `<div class="card top" data-act="newpost" style="cursor:pointer;margin-bottom:10px">${av(S.me||{})}<div style="flex:1;background:var(--bg);border-radius:22px;padding:11px 16px;color:var(--mu)">Quoi de neuf ?</div><span aria-hidden="true" style="font-size:22px">🖼️</span></div><div id="actus"></div><div class="tabs"><button class="${fm()==='foryou'?'on':''}" data-act="fmode" data-m="foryou">✨ Pour vous</button><button class="${fm()==='recent'?'on':''}" data-act="fmode" data-m="recent">🕒 Récents</button></div><div id="feed"></div>`;
 }
 const av=a=>a?.avatar_url?`<img class="av" src="${esc(a.avatar_url)}" alt="">`:`<span class="av">${esc((a?.first_name||'?')[0])}</span>`;
 const rel=d=>{const m=(Date.now()-new Date(d))/60000;return m<1?'À l’instant':m<60?Math.floor(m)+' min':m<1440?Math.floor(m/60)+' h':m<10080?Math.floor(m/1440)+' j':new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})};
@@ -376,7 +464,7 @@ function renderFeed(){
 }
 function profileView(){
   const m=S.me||{},inp=(n,l)=>`<label>${l}<input name="${n}" value="${esc(m[n])}" maxlength="120"></label>`;
-  return `<form class="card" data-f="profile"><div class="top">${av(m)}<div><b>${esc(m.first_name)} ${esc(m.last_name)}</b><br><small>Inscrit le ${m.created_at?new Date(m.created_at).toLocaleDateString('fr-FR'):''}</small></div></div><label>Changer la photo<input id="avf" type="file" accept="image/*"></label>${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('group_name','Groupe scout')}${inp('district','District')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}"${m.scout_role===v?' selected':''}>${l}</option>`).join('')}</select></label><label>Biographie (facultative)<textarea name="bio" maxlength="500">${esc(m.bio)}</textarea></label><button class="btn">Enregistrer</button></form><button class="btn ghost" data-act="out" style="margin-top:4px">⎋ Déconnexion</button>`;
+  return `<form class="card" data-f="profile"><div class="top">${av(m)}<div><b>${esc(m.first_name)} ${esc(m.last_name)}</b><br><small>Inscrit le ${m.created_at?new Date(m.created_at).toLocaleDateString('fr-FR'):''}</small></div></div><label>Changer la photo<input id="avf" type="file" accept="image/*"></label>${inp('first_name','Prénom')}${inp('last_name','Nom')}${inp('group_name','Groupe scout')}${inp('district','District')}${inp('province','Province')}${inp('country','Pays')}<label>Rôle<select name="scout_role">${ROLES.map(([v,l])=>`<option value="${v}"${m.scout_role===v?' selected':''}>${l}</option>`).join('')}</select></label><label>Biographie (facultative)<textarea name="bio" maxlength="500">${esc(m.bio)}</textarea></label><button class="btn">Enregistrer</button></form><button class="btn ghost" data-act="out" style="margin-top:4px">⎋ Déconnexion</button>${S.me&&['moderator','admin'].includes(S.me.role)?'<button class="btn" data-act="nav" data-v="admin" style="margin-top:4px">🛡️ Espace modération</button>':''}<button class="link" data-act="rules" style="display:block;margin:8px auto 0">📜 Charte et confidentialité</button><button class="link" data-act="delacct" style="display:block;margin:0 auto;color:#b91c1c">🗑 Supprimer mon compte</button>`;
 }
 
 /* ---------- actions ---------- */
@@ -388,6 +476,7 @@ const H={
     if(v==='notifs')await loadNotifs();
     if(v==='msgs'){await loadConvs();await loadMembers()}
     if(v==='groups')await loadGroups();
+    if(v==='admin')await loadAdmin();
   },
   async user(e){S.view='user';S.U=null;render();await loadUser(e.target.dataset.u)},
   async readall(){await sb.from('notifications').update({read:true}).eq('user_id',S.user.id).eq('read',false);await loadNotifs();await loadUnread()},
@@ -455,7 +544,7 @@ const H={
   async enablepush(){await enablePush(false)},
   menu(e){
     S.mp=e.target.dataset.id;const p=S.posts.find(x=>x.id===S.mp),mine=p?.author_id===S.user.id;
-    modal(`<div class="card" style="width:100%;max-width:420px;margin:0"><button class="btn ghost" data-act="mact" data-a="report">🚩 Signaler</button>${mine?'<button class="btn ghost" data-act="mact" data-a="edit">✏️ Modifier</button><button class="btn ghost" data-act="mact" data-a="del">🗑 Supprimer</button>':''}<button class="btn" data-act="closeov">Fermer</button></div>`);
+    modal(`<div class="card" style="width:100%;max-width:420px;margin:0"><button class="btn ghost" data-act="mact" data-a="report">🚩 Signaler</button>${mine?'':'<button class="btn ghost" data-act="mact" data-a="blockauthor">🚫 Bloquer l’auteur</button>'}${mine?'<button class="btn ghost" data-act="mact" data-a="edit">✏️ Modifier</button><button class="btn ghost" data-act="mact" data-a="del">🗑 Supprimer</button>':''}<button class="btn" data-act="closeov">Fermer</button></div>`);
   },
   mact(e){const a=e.target.dataset.a;closeOv();H[a]({target:{closest:()=>null}})},
   plus(){
@@ -468,6 +557,48 @@ const H={
     modal('<form class="card" data-f="post" style="width:100%;max-width:420px;margin:0;max-height:92vh;overflow:auto"><h3 style="margin:0">Créer une publication</h3><label>Quoi de neuf ?<textarea id="txt" maxlength="2000" required placeholder="Partagez une expérience, une idée…"></textarea></label><div id="prev"></div><input id="file" type="file" accept="image/*" aria-label="Ajouter une photo"><p class="note">Pas de coordonnées personnelles ni de photos d’autres personnes sans autorisation.</p><button class="btn" id="pub">Publier</button><button type="button" class="btn ghost" data-act="closeov">Annuler</button></form>');
   },
   stab(e){S.stab=e.target.dataset.t;$('.wrap').innerHTML=searchView();renderFeed()},
+  async fmode(e){
+    try{localStorage.setItem('feedmode',e.target.dataset.m)}catch(x){}
+    $('.wrap').innerHTML=feedView();renderActus();await loadPosts(true);renderFeed();
+  },
+  async rec(){if(S.rc)stopRec(true);else await startRec()},
+  reccancel(){stopRec(false)},
+  rules(){modal(`<div class="card" style="width:100%;max-width:440px;margin:0;max-height:88vh;overflow:auto">${RULES}<button class="btn" data-act="closeov">J’ai lu</button></div>`)},
+  async block(e){
+    const id=e.target.dataset.u;
+    if(S.ub){
+      const{error}=await sb.from('blocks').delete().eq('blocker_id',S.user.id).eq('blocked_id',id);
+      if(error)return toast(friendly(error),1);S.ub=false;toast('Utilisateur débloqué.');
+    }else{
+      if(!confirm('Bloquer cet utilisateur ? Vous ne verrez plus ses publications et il ne pourra plus vous écrire.'))return;
+      const{error}=await sb.from('blocks').insert({blocker_id:S.user.id,blocked_id:id});
+      if(error)return toast(friendly(error),1);S.ub=true;toast('Utilisateur bloqué.');
+    }
+    if(S.view==='user'){$('.wrap').innerHTML=userView();renderFeed()}
+  },
+  async blockauthor(){
+    const p=S.posts.find(x=>x.id===S.mp);if(!p)return;
+    if(!confirm('Bloquer cet auteur ? Vous ne verrez plus ses publications et il ne pourra plus vous écrire.'))return;
+    const{error}=await sb.from('blocks').insert({blocker_id:S.user.id,blocked_id:p.author_id});
+    if(error)return toast(friendly(error),1);
+    toast('Utilisateur bloqué.');await H.nav({target:{dataset:{v:'feed'}}});
+  },
+  async delacct(){
+    if(!confirm('Supprimer définitivement votre compte, vos publications et vos messages ? Cette action est irréversible.'))return;
+    const w=prompt('Pour confirmer, tapez SUPPRIMER');
+    if((w||'').trim().toUpperCase()!=='SUPPRIMER')return toast('Suppression annulée.',1);
+    await dropPush();
+    const{error}=await sb.rpc('delete_my_account');if(error)return toast(friendly(error),1);
+    await sb.auth.signOut({scope:'local'});toast('Votre compte a été supprimé.');
+  },
+  async modact(e){
+    const d=e.target.dataset;
+    if((d.a==='hide'||d.a==='suspend')&&d.c){const r=await sb.from(d.t==='post'?'posts':'comments').update({hidden:true}).eq('id',d.c);if(r.error)return toast(friendly(r.error),1)}
+    if(d.a==='suspend'&&d.u){const r=await sb.from('profiles').update({suspended:true}).eq('id',d.u);if(r.error)return toast(friendly(r.error),1)}
+    const{error}=await sb.from('reports').update({status:d.a==='dismiss'?'dismissed':'resolved',handled_by:S.user.id}).eq('id',d.id);
+    if(error)return toast(friendly(error),1);
+    toast('Signalement traité.');await loadAdmin();
+  },
   async join(e){
     const id=e.target.dataset.u,me=S.user.id;
     const{error}=await(S.fm?sb.from('follows').delete().eq('follower_id',me).eq('followed_id',id):sb.from('follows').insert({follower_id:me,followed_id:id}));
@@ -627,6 +758,7 @@ const F={
     const d=new FormData(f);
     if(d.get('p')!==d.get('p2'))return toast('Les mots de passe ne sont pas identiques.',1);
     const meta={};['first_name','last_name','group_name','district','province','country','scout_role'].forEach(k=>meta[k]=String(d.get(k)).trim());
+    meta.terms='true';
     const{data,error}=await sb.auth.signUp({email:d.get('email').trim(),password:d.get('p'),options:{data:meta}});
     if(error)return toast(friendly(error),1);
     if(!data.session){S.mode='login';render();toast('Compte créé ! Vérifiez votre boîte e-mail pour confirmer, puis connectez-vous.')}
@@ -681,6 +813,7 @@ const F={
   async actu(f){
     const t=f.elements.t.value.trim(),file=f.querySelector('input[type=file]').files[0],b=f.querySelector('.btn');
     if(!t&&!file)return toast('Écrivez un message ou ajoutez une photo.',1);
+    if(!await clean(t))return;
     b.disabled=true;
     try{
       const url=file?await upload('post-images',file):null;
@@ -690,6 +823,7 @@ const F={
   },
   async post(f){
     const t=$('#txt').value.trim(),b=$('#pub');if(!t)return toast('Écrivez un message.',1);
+    if(!await clean(t))return;
     b.disabled=true;
     try{
       const url=S.img?await upload('post-images',S.img):null;
@@ -700,6 +834,7 @@ const F={
   },
   async comment(f){
     const id=f.closest('article').dataset.id,c=new FormData(f).get('c').trim();if(!c)return;
+    if(!await clean(c))return;
     const{error}=await sb.from('comments').insert({post_id:id,author_id:S.user.id,content:c});
     if(error)return toast(friendly(error),1);
     await loadCm(id);await refreshCount(id);
