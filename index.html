@@ -183,9 +183,9 @@ async function loadChat(first){
   const{data,error}=await sb.from('messages').select('id,content,created_at,sender_id,read,audio_path,audio_secs').or(`and(sender_id.eq.${me},recipient_id.eq.${o}),and(sender_id.eq.${o},recipient_id.eq.${me})`).order('created_at').limit(200);
   if(error)return toast(friendly(error),1);
   const n=S.chm?.length;S.chm=data;const c=$('#cl'),need=first||data.length!==n;let su={};
-  if(need){const ap=data.filter(x=>x.audio_path).map(x=>x.audio_path);if(ap.length){const{data:sg}=await sb.storage.from('voice').createSignedUrls(ap,3600);(sg||[]).forEach(x=>su[x.path]=x.signedUrl)}}
+  if(need){const ap=data.filter(x=>x.audio_path).map(x=>x.audio_path);if(ap.length){const{data:sg,error:se}=await sb.storage.from('voice').createSignedUrls(ap,3600);if(se)toast('Audio indisponible : '+se.message,1);(sg||[]).forEach(x=>su[x.path]=x.signedUrl)}}
   if(S.view==='chat'&&c&&need){
-    c.innerHTML=data.length?data.map(x=>{const mine=x.sender_id===me;return `<div style="display:flex;justify-content:${mine?'flex-end':'flex-start'}"><div style="max-width:80%;padding:8px 12px;border-radius:16px;margin:3px 0;background:${mine?'var(--g)':'#fff'};color:${mine?'#fff':'var(--tx)'};white-space:pre-wrap;word-break:break-word">${x.audio_path?`<audio controls preload="metadata" src="${esc(su[x.audio_path]||'')}" style="max-width:220px;height:36px"></audio>`:esc(x.content)}<br><small style="opacity:.7;color:inherit">${new Date(x.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty">Écrivez le premier message.</p>';
+    c.innerHTML=data.length?data.map(x=>{const mine=x.sender_id===me;return `<div style="display:flex;justify-content:${mine?'flex-end':'flex-start'}"><div style="max-width:80%;padding:8px 12px;border-radius:16px;margin:3px 0;background:${mine?'var(--g)':'#fff'};color:${mine?'#fff':'var(--tx)'};white-space:pre-wrap;word-break:break-word">${x.audio_path?(su[x.audio_path]?`<audio controls preload="auto" playsinline src="${esc(su[x.audio_path])}" style="max-width:230px;height:36px"></audio><br><small style="opacity:.85;color:inherit">🎤 ${x.audio_secs||0} s · <a href="${esc(su[x.audio_path])}" target="_blank" rel="noopener" style="color:inherit">Ouvrir l’audio</a></small>`:'<small>🎤 Audio indisponible, réessayez plus tard.</small>'):esc(x.content)}<br><small style="opacity:.7;color:inherit">${new Date(x.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty">Écrivez le premier message.</p>';
     if(first||data.length!==n)c.scrollTop=c.scrollHeight;
   }
   if(data.some(x=>x.sender_id===o&&!x.read)){await sb.from('messages').update({read:true}).eq('sender_id',o).eq('recipient_id',me).eq('read',false);loadUnread()}
@@ -272,7 +272,7 @@ async function startRec(){
   if(!navigator.mediaDevices||!window.MediaRecorder)return toast('Messages vocaux non pris en charge sur ce navigateur.',1);
   try{
     const st=await navigator.mediaDevices.getUserMedia({audio:true});
-    const mime=['audio/webm','audio/mp4','audio/ogg'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    const mime=['audio/mp4','audio/webm','audio/ogg'].find(m=>MediaRecorder.isTypeSupported(m))||'';
     const mr=new MediaRecorder(st,mime?{mimeType:mime}:undefined);
     const r=S.rc={mr,st,chunks:[],t0:Date.now(),mime:mr.mimeType||mime||'audio/webm',send:true,to:S.ch};
     mr.ondataavailable=e=>{if(e.data&&e.data.size)r.chunks.push(e.data)};
