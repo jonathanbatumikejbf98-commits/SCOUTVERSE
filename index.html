@@ -783,6 +783,22 @@ if(navigator.standalone||matchMedia('(display-mode: standalone)').matches){
     if(e.changedTouches[0].clientY-py>120&&scrollY<=0){toast('Actualisation…');await loadPosts(true);renderFeed();await loadActus();await loadUnread()}
   },{passive:true});
 }
+// Mises à jour : la version publiée est dans /version.json ; si elle change, un bandeau propose de recharger
+const APP_V='2026-11-24.1';
+async function checkUpdate(){
+  try{
+    const r=await fetch('/version.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)return;
+    const j=await r.json();
+    if(j.v&&j.v!==APP_V&&!document.getElementById('upd')){
+      const b=document.createElement('div');b.id='upd';
+      b.style.cssText='position:fixed;left:12px;right:12px;bottom:84px;background:#6E20A0;color:#fff;border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;z-index:50;box-shadow:0 4px 14px #0004';
+      b.innerHTML='<span style="flex:1">🔄 Une nouvelle version de SCOUTVERSE est disponible.</span><button style="border:0;border-radius:10px;padding:10px 14px;font-weight:700;background:#fff;color:#6E20A0" onclick="location.reload()">Mettre à jour</button>';
+      document.body.append(b);
+    }
+  }catch(x){}
+}
+setTimeout(checkUpdate,15000);setInterval(checkUpdate,300000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdate()});
 app.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b)H[b.dataset.act]?.({target:b})});
 app.addEventListener('change',e=>{
   if(e.target.id==='file'){
